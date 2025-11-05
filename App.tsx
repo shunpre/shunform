@@ -2,7 +2,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Step, FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS } from './constants';
-import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc';
 import { arrayMoveImmutable as arrayMove } from 'array-move';
 
 const initialFormData: FormData = {
@@ -84,22 +83,36 @@ const CheckIcon = () => (
     </svg>
 );
 
-const DragHandle = SortableHandle(() => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="cursor-grab text-gray-400"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>);
-
-const SortableItem = SortableElement<{ item: FormItem }>(({ item }: {item: FormItem}) => (
-    <div className="flex items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
-        <DragHandle />
-        <span className="ml-3 text-gray-700">{item.name}</span>
-    </div>
-));
-
-const SortableList = SortableContainer<{ items: FormItem[] }>(({ items }: {items: FormItem[]}) => (
+const ReorderableList: React.FC<{
+    items: FormItem[];
+    onMove: (oldIndex: number, newIndex: number) => void;
+}> = ({ items, onMove }) => (
     <div className="space-y-2">
-        {items.map((value, index) => (
-            <SortableItem key={`item-${value.id}`} index={index} item={value} />
+        {items.map((item, index) => (
+            <div key={item.id} className="flex items-center justify-between bg-gray-50 p-2.5 rounded-lg border border-gray-200">
+                <span className="text-sm text-gray-700">{item.name}</span>
+                <div className="flex items-center gap-x-1">
+                    <button
+                        onClick={() => onMove(index, index - 1)}
+                        disabled={index === 0}
+                        className="p-1 rounded-md text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label={`Move ${item.name} up`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                    </button>
+                    <button
+                        onClick={() => onMove(index, index + 1)}
+                        disabled={index === items.length - 1}
+                        className="p-1 rounded-md text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label={`Move ${item.name} down`}
+                    >
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                </div>
+            </div>
         ))}
     </div>
-));
+);
 
 // --- Main App Component ---
 
@@ -227,20 +240,18 @@ export default function App() {
         return grouped;
     }, [formData.selectedItems]);
     
-    const handleSortEnd = useCallback(({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }) => {
-        setFormData(prev => ({
-            ...prev,
-            selectedItems: arrayMove(prev.selectedItems, oldIndex, newIndex)
-        }));
+    const handleMoveItem = useCallback((listKey: 'selectedItems' | 'abTestItemOrderB', oldIndex: number, newIndex: number) => {
+        setFormData(prev => {
+            const list = prev[listKey];
+            if (newIndex < 0 || newIndex >= list.length) {
+                return prev;
+            }
+            return {
+                ...prev,
+                [listKey]: arrayMove(list, oldIndex, newIndex),
+            };
+        });
     }, []);
-
-    const handleSortEndB = useCallback(({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }) => {
-        setFormData(prev => ({
-            ...prev,
-            abTestItemOrderB: arrayMove(prev.abTestItemOrderB, oldIndex, newIndex)
-        }));
-    }, []);
-
 
     const validateAndProceed = (nextStep: Step, validationLogic: () => boolean) => {
         if (validationLogic()) {
@@ -555,7 +566,7 @@ export default function App() {
             </>;
             case Step.Q1_3: return <>
                 <Title>Q1.3 フォームに入れる項目の選択</Title>
-                <Description>{`以下から、フォームに入れたいものの番号または項目名を入力してください。\n表示したい順にドラッグ＆ドロップで並べ替えてください。`}</Description>
+                <Description>{`フォームに入れたい項目を選択してください。\n右側の矢印ボタンで表示順を変更できます。`}</Description>
                  <ErrorMessage message={errors.selectedItems as string} />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    <div>
@@ -570,10 +581,13 @@ export default function App() {
                         </div>
                    </div>
                     <div>
-                        <h3 className="font-semibold mb-2">選択した項目（ドラッグで順序変更）</h3>
+                        <h3 className="font-semibold mb-2">選択した項目（順序変更可）</h3>
                          <div className="p-2 border rounded-lg min-h-[24rem]">
                             {formData.selectedItems.length > 0 ? (
-                                <SortableList items={formData.selectedItems} onSortEnd={handleSortEnd} useDragHandle />
+                                <ReorderableList
+                                    items={formData.selectedItems}
+                                    onMove={(oldIndex, newIndex) => handleMoveItem('selectedItems', oldIndex, newIndex)}
+                                />
                             ) : (
                                 <div className="text-center text-gray-500 py-10">項目を選択してください</div>
                             )}
@@ -752,7 +766,10 @@ export default function App() {
                 </div>}
                 {formData.abTestItem === '質問の順番' && <div>
                     <label className="text-sm font-medium">新しい質問の順番</label>
-                    <SortableList items={formData.abTestItemOrderB} onSortEnd={handleSortEndB} useDragHandle />
+                    <ReorderableList
+                        items={formData.abTestItemOrderB}
+                        onMove={(oldIndex, newIndex) => handleMoveItem('abTestItemOrderB', oldIndex, newIndex)}
+                    />
                 </div>}
             </>;
             case Step.Summary: return <>
