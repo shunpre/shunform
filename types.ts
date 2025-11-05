@@ -11,7 +11,7 @@ export interface FormData {
   gtmId: string;
   ga4Id: string;
   selectedItems: FormItem[];
-  otherItems: string;
+  customItem: { title: string };
   radioItems: { title: string; options: string };
   checkboxItems: { title: string; options: string };
   pulldownItems: { title: string; options: string };

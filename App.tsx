@@ -16,7 +16,7 @@ const initialFormData: FormData = {
   gtmId: '',
   ga4Id: '',
   selectedItems: [],
-  otherItems: '',
+  customItem: { title: '' },
   radioItems: { title: '', options: '' },
   checkboxItems: { title: '', options: '' },
   pulldownItems: { title: '', options: '' },
@@ -161,19 +161,19 @@ const CodeBlock: React.FC<{ title: string; code: string; onCopy?: () => void; }>
     const [copy, isCopied] = useCopyToClipboard(onCopy);
 
     return (
-        <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">{title}</h4>
-            <div className="relative">
-                <pre className="bg-gray-800 text-white p-4 rounded-lg text-xs overflow-auto max-h-80">
-                    <code>{code}</code>
-                </pre>
+        <div className="bg-gray-800 rounded-lg overflow-hidden">
+            <div className="flex justify-between items-center bg-gray-700 px-4 py-2">
+                <h4 className="text-xs font-semibold text-gray-300">{title}</h4>
                 <button
                     onClick={() => copy(code)}
-                    className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-md text-xs inline-flex items-center gap-1"
+                    className="bg-gray-600 hover:bg-gray-500 text-white p-2 rounded-md text-xs inline-flex items-center gap-1"
                 >
                     {isCopied ? <><CheckIcon />コピーしました</> : <><CopyIcon />コピー</>}
                 </button>
             </div>
+            <pre className="text-white p-4 text-xs overflow-auto max-h-80">
+                <code>{code}</code>
+            </pre>
         </div>
     );
 };
@@ -236,19 +236,20 @@ const VideoModal: React.FC<{ isOpen: boolean; onClose: () => void; videoUrl: str
 
 export default function App() {
     const [formData, setFormData] = useState<FormData>(initialFormData);
-    const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+    const [errors, setErrors] = useState<any>({});
     const [generatedOutput, setGeneratedOutput] = useState<{ a?: string; b?: string; router?: string } | null>(null);
     const [activeTab, setActiveTab] = useState<'a' | 'b' | 'router'>('a');
-    const [copyHtml, isHtmlCopied] = useCopyToClipboard();
     const [itemSelectionError, setItemSelectionError] = useState<string | null>(null);
-    const [showGasCode, setShowGasCode] = useState(false);
     const [showVideoModal, setShowVideoModal] = useState(false);
     const [toastText, setToastText] = useState('');
+    const [showGasCode, setShowGasCode] = useState(false);
 
     const showToast = (text: string) => {
         setToastText(text);
         setTimeout(() => setToastText(''), 2500);
     };
+
+    const [copyToClipboard] = useCopyToClipboard();
 
     // Auto-sort selected items to keep groups together
     useEffect(() => {
@@ -440,9 +441,9 @@ export default function App() {
                 case 13: cfg.fields.push({ id: 'inquiry', type: 'textarea', ...commonProps }); break;
                 case 14: cfg.fields.push({ id: 'file_upload', type: 'file', ...commonProps }); break;
                 case 15:
-                    finalData.otherItems.split(/[\n,、]+/).forEach((other, i) => {
-                        if(other.trim()) cfg.fields.push({ id: `other_${i}`, type: 'text', label: other.trim(), required: isRequired, message });
-                    });
+                    if (finalData.customItem.title.trim()) {
+                        cfg.fields.push({ id: 'custom_text_0', type: 'text', label: finalData.customItem.title.trim(), required: isRequired, message });
+                    }
                     break;
                 case 16: cfg.fields.push({ id: 'custom_radio', type: 'radio', label: finalData.radioItems.title, choices: finalData.radioItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
                 case 17: cfg.fields.push({ id: 'custom_checkbox', type: 'checkbox', label: finalData.checkboxItems.title, choices: finalData.checkboxItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
@@ -472,14 +473,14 @@ export default function App() {
     };
     
     const handleSubmit = () => {
-        const newErrors: Partial<Record<keyof FormData, string>> = {};
+        const newErrors: any = {};
         if (!formData.title.trim()) newErrors.title = 'フォームタイトルを入力してください。';
         if (formData.useAnalytics) {
             if (!formData.gtmId.trim().match(/^GTM-[A-Z0-9]{7,}$/)) newErrors.gtmId = '正しいGTMコンテナIDを入力してください (例: GTM-XXXXXXX)。';
             if (!formData.ga4Id.trim().match(/^G-[A-Z0-9]{10,}$/)) newErrors.ga4Id = '正しいGA4測定IDを入力してください (例: G-XXXXXXXXXX)。';
         }
         if (formData.selectedItems.length === 0) newErrors.selectedItems = 'フォームに入れる項目を1つ以上選択してください。';
-        if (hasItem(15) && !formData.otherItems.trim()) newErrors.otherItems = 'その他の項目を入力してください。';
+        if (hasItem(15) && !formData.customItem.title.trim()) newErrors.customItem = 'カスタム項目のタイトルを入力してください。';
         if (hasItem(16)) { if (!formData.radioItems.title.trim() || !formData.radioItems.options.trim()) newErrors.radioItems = 'ラジオボタンのタイトルと選択肢を両方入力してください。'; }
         if (hasItem(17)) { if (!formData.checkboxItems.title.trim() || !formData.checkboxItems.options.trim()) newErrors.checkboxItems = 'チェックボックスのタイトルと選択肢を両方入力してください。'; }
         if (hasItem(18)) { if (!formData.pulldownItems.title.trim() || !formData.pulldownItems.options.trim()) newErrors.pulldownItems = 'プルダウンのタイトルと選択肢を両方入力してください。'; }
@@ -513,10 +514,11 @@ export default function App() {
                         </div>
                     )}
                     <div className="relative">
-                        <pre className="bg-gray-800 text-white p-4 rounded-lg text-xs overflow-auto max-h-[60vh]"><code>{currentContent}</code></pre>
-                        <button onClick={() => copyHtml(currentContent || '')} className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-md text-xs inline-flex items-center gap-1">
-                             {isHtmlCopied ? <><CheckIcon />コピーしました</> : <><CopyIcon />コピー</>}
-                        </button>
+                        <CodeBlock 
+                            title={activeTab === 'a' ? "パターンA HTML" : activeTab === 'b' ? "パターンB HTML" : "ルーター HTML"}
+                            code={currentContent || ''}
+                            onCopy={() => showToast('HTMLコードをコピーしました')}
+                        />
                     </div>
                 </div>
             </div>
@@ -546,10 +548,10 @@ export default function App() {
                         <ErrorMessage message={errors.selectedItems as string} />
                         {(hasItem(15) || hasItem(16) || hasItem(17) || hasItem(18)) &&
                             <div className="p-4 border rounded-lg bg-gray-100 space-y-4">
-                                {hasItem(15) && <div id="field-container-otherItems" className="space-y-2"><SectionTitle>カスタム項目（テキスト入力）</SectionTitle><Textarea placeholder="改行区切りで項目名を入力（例：紹介コード）" value={formData.otherItems} onChange={e => handleChange('otherItems', e.target.value)} rows={3} /><ErrorMessage message={errors.otherItems} /></div>}
-                                {hasItem(16) && <div id="field-container-radioItems" className="space-y-2 mt-4"><SectionTitle>ラジオボタン</SectionTitle><Input placeholder="タイトル" value={formData.radioItems.title} onChange={e => handleChange('radioItems', { ...formData.radioItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.radioItems.options} onChange={e => handleChange('radioItems', { ...formData.radioItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.radioItems as string} /></div>}
-                                {hasItem(17) && <div id="field-container-checkboxItems" className="space-y-2 mt-4"><SectionTitle>チェックボックス</SectionTitle><Input placeholder="タイトル" value={formData.checkboxItems.title} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.checkboxItems.options} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.checkboxItems as string} /></div>}
-                                {hasItem(18) && <div id="field-container-pulldownItems" className="space-y-2 mt-4"><SectionTitle>プルダウン</SectionTitle><Input placeholder="タイトル" value={formData.pulldownItems.title} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.pulldownItems.options} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.pulldownItems as string} /></div>}
+                                {hasItem(15) && <div id="field-container-customItem" className="space-y-2"><SectionTitle>カスタム項目</SectionTitle><Input placeholder="項目名（例：紹介コード）" value={formData.customItem.title} onChange={e => handleChange('customItem', { ...formData.customItem, title: e.target.value })} /><ErrorMessage message={errors.customItem} /></div>}
+                                {hasItem(16) && <div id="field-container-radioItems" className="space-y-2 mt-4"><SectionTitle>ラジオボタン</SectionTitle><Input placeholder="タイトル" value={formData.radioItems.title} onChange={e => handleChange('radioItems', { ...formData.radioItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.radioItems.options} onChange={e => handleChange('radioItems', { ...formData.radioItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.radioItems as string} /></div>}
+                                {hasItem(17) && <div id="field-container-checkboxItems" className="space-y-2 mt-4"><SectionTitle>チェックボックス</SectionTitle><Input placeholder="タイトル" value={formData.checkboxItems.title} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.checkboxItems.options} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.checkboxItems as string} /></div>}
+                                {hasItem(18) && <div id="field-container-pulldownItems" className="space-y-2 mt-4"><SectionTitle>プルダウン</SectionTitle><Input placeholder="タイトル" value={formData.pulldownItems.title} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.pulldownItems.options} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.pulldownItems as string} /></div>}
                             </div>
                         }
                         <div className="p-4 border rounded-lg bg-gray-100">
@@ -558,14 +560,46 @@ export default function App() {
                         </div>
                     </div>
                 </Card>
-                <Card><Title>3. 表示オプションと連携設定</Title><div className="space-y-6"><div className="p-4 border rounded-lg bg-gray-100 space-y-4"><SectionTitle>吹き出し用の画像</SectionTitle><div><label className="text-sm font-medium text-gray-600">共通アバター画像URL</label><Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} /></div><div className="mt-4"><label className="text-sm font-medium text-gray-600">項目別アバター画像URL</label><p className="text-xs text-gray-500 mb-2">共通アバターを変更するページのみ</p><div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">{groupedItems.map((item, index) => { const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || ''; return (<div key={index}><label className="text-xs text-gray-500 block mb-1">{groupName}</label><Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} /></div>)})}{(() => { const groupName = '確認画面'; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || ''; return (<div><label className="text-xs text-gray-500 block mb-1">{groupName}</label><Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} /></div>)})()}</div></div></div>
+                <Card><Title>3. 表示オプションと連携設定</Title><div className="space-y-6"><div className="p-4 border rounded-lg bg-gray-100 space-y-4"><SectionTitle>吹き出し用の画像</SectionTitle><div><label className="text-sm font-medium text-gray-600">共通アバター画像URL</label><Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} /></div><div className="mt-4"><label className="text-sm font-medium text-gray-600">項目別アバター画像URL</label><p className="text-xs text-gray-500 mb-2">共通アバターを変更するページのみ記入してください</p><div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">{groupedItems.map((item, index) => { const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || ''; return (<div key={index}><label className="text-xs text-gray-500 block mb-1">{groupName}</label><Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} /></div>)})}{(() => { const groupName = '確認画面'; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || ''; return (<div><label className="text-xs text-gray-500 block mb-1">{groupName}</label><Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} /></div>)})()}</div></div></div>
 <div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>吹き出し用のセリフ</SectionTitle><p className="text-xs text-gray-500 mb-3">無記入の場合は、各項目のタイトルがセリフとして表示されます。</p><div className="space-y-4 max-h-96 overflow-y-auto">{groupedItems.map((item, index) => { const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name; return (<div key={index}><label className="text-sm font-medium text-gray-600">{groupName}</label><Input placeholder={`「${groupName}」のセリフ`} value={formData.bubbleTexts[groupName] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, [groupName]: e.target.value})} /></div>)})}{<div><label className="text-sm font-medium text-gray-600">確認画面</label><Input placeholder="確認画面のセリフ" value={formData.bubbleTexts['確認画面'] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, '確認画面': e.target.value})} /></div>}</div></div>
 <div id="field-container-submitButtonText" className="p-4 border rounded-lg bg-gray-100"><SectionTitle>送信ボタンの文言</SectionTitle><Input placeholder="送信" value={formData.submitButtonText} onChange={e => handleChange('submitButtonText', e.target.value)} /></div>
 <div id="field-container-privacyPolicyUrl" className="p-4 border rounded-lg bg-gray-100"><SectionTitle required>個人情報の取り扱いリンクURL</SectionTitle><Input type="url" placeholder="https://example.com/privacy" value={formData.privacyPolicyUrl} onChange={e => handleChange('privacyPolicyUrl', e.target.value)} /><ErrorMessage message={errors.privacyPolicyUrl} /></div>
-{/* FIX: Corrected the onChange handler for the newsletter text input by using the correct form data key 'newsletterText' and ensuring the JSX was properly closed. */}
 <div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>ニュースレター購読チェックボックス</SectionTitle><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useNewsletter" checked={!formData.useNewsletter} onChange={() => handleChange('useNewsletter', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label><label className="flex items-center"><input type="radio" name="useNewsletter" checked={formData.useNewsletter} onChange={() => handleChange('useNewsletter', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label></div>{formData.useNewsletter && <Input className="mt-4" placeholder="ニュースレター/最新情報を受け取る" value={formData.newsletterText} onChange={e => handleChange('newsletterText', e.target.value)} />}</div>
 <div id="field-container-recaptchaSiteKey" className="p-4 border rounded-lg bg-gray-100"><SectionTitle>reCAPTCHA v3</SectionTitle><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useRecaptcha" checked={!formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">使わない</span></label><label className="flex items-center"><input type="radio" name="useRecaptcha" checked={formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">使う</span></label></div>{formData.useRecaptcha && <div className="mt-4 pl-6 border-l-2 border-teal-100"><Input placeholder="サイトキー" value={formData.recaptchaSiteKey} onChange={e => handleChange('recaptchaSiteKey', e.target.value)} /><ErrorMessage message={errors.recaptchaSiteKey} /></div>}</div>
-<div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>Google Apps Script (GAS) 連携</SectionTitle><p className="text-xs text-gray-600 mb-3">フォームの送信データをGASで受信し、自動返信メールやスプレッドシートへの記録を行います。下記の手順に従って設定してください。</p><div className="space-y-4"><div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-teal-50 border border-teal-200 rounded-lg"><div><div className="font-bold text-teal-800">Step 1: GASコードをコピー</div><p className="text-xs text-teal-700 mt-1">下のボタンを押してGASのコードをコピーし、お使いのGoogleアカウントで <a href="https://script.google.com/home/my" target="_blank" rel="noopener noreferrer" className="underline hover:text-teal-600">Google Apps Script</a> の新規プロジェクトに貼り付けて保存します。</p></div><Button onClick={() => { copyHtml(GAS_CODE_TEMPLATE); showToast('GASコードをコピーしました'); }} className="flex-shrink-0">GASコードをコピー</Button></div><div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-teal-50 border border-teal-200 rounded-lg"><div><div className="font-bold text-teal-800">Step 2: GASをウェブアプリとしてデプロイ</div><p className="text-xs text-teal-700 mt-1">GASエディタの「デプロイ」&gt;「新しいデプロイ」から、種類を「ウェブアプリ」として、アクセスできるユーザーを「全員」に設定してデプロイします。</p><button onClick={() => setShowVideoModal(true)} className="text-xs text-teal-600 hover:underline mt-1">動画で手順を確認する</button></div></div><div id="field-container-gasUrl" className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-teal-50 border border-teal-200 rounded-lg"><div><div className="font-bold text-teal-800">Step 3: WebアプリURLを入力</div><p className="text-xs text-teal-700 mt-1">デプロイ後に表示される「ウェブアプリURL」をコピーして、下の欄に貼り付けます。</p><Input className="mt-2 w-full" placeholder="https://script.google.com/macros/s/..." value={formData.gasUrl} onChange={e => handleChange('gasUrl', e.target.value)} /><ErrorMessage message={errors.gasUrl} /></div></div></div></div>
+<div id="field-container-gasUrl" className="p-4 border rounded-lg bg-gray-100">
+    <SectionTitle>Google Apps Script (GAS) 連携</SectionTitle>
+    <p className="text-xs text-gray-600 mb-3">フォームの送信データをGASで受信し、自動返信メールやスプレッドシートへの記録を行います。下記の手順に従って設定してください。</p>
+    
+    <label className="text-sm font-medium text-gray-600 block mt-4">【必須】GAS WebアプリURL</label>
+    <Input className="mt-1 w-full" placeholder="https://script.google.com/macros/s/..." value={formData.gasUrl} onChange={e => handleChange('gasUrl', e.target.value)} />
+    <ErrorMessage message={errors.gasUrl} />
+
+    <div className="flex items-center gap-4 mt-4">
+        <Button variant="ghost" onClick={() => setShowVideoModal(true)}>GASの設定方法を動画で見る</Button>
+        <Button variant="ghost" onClick={() => setShowGasCode(p => !p)}>{showGasCode ? 'GASコードを隠す' : 'GASコードを表示'}</Button>
+    </div>
+    {showGasCode && (
+        <div className="mt-4 space-y-4">
+            <div>
+                <p className="text-sm text-gray-800 mb-2">
+                    <span className="font-bold">1. </span> 
+                    <a href="https://script.google.com/home/my" target="_blank" rel="noopener noreferrer" className="text-teal-600 underline hover:text-teal-700">Google Apps Script</a>
+                    で新規プロジェクトを作成し、以下の2つのファイルを準備します。
+                </p>
+            </div>
+            <CodeBlock
+                title="ファイル1: Code.gs (この内容に書き換える)"
+                code={GAS_CODE_TEMPLATE}
+                onCopy={() => showToast('Code.gs のコードをコピーしました')}
+            />
+            <CodeBlock
+                title="ファイル2: Sidebar.html (新規HTMLファイルとして作成)"
+                code={SIDEBAR_HTML_TEMPLATE}
+                onCopy={() => showToast('Sidebar.html のコードをコピーしました')}
+            />
+        </div>
+    )}
+</div>
 <div id="field-container-conversionUrl" className="p-4 border rounded-lg bg-gray-100"><SectionTitle required>サンクスページ（フォーム送信後の完了画面）URL</SectionTitle><Input placeholder="https://example.com/thanks" value={formData.conversionUrl} onChange={e => handleChange('conversionUrl', e.target.value)} /><ErrorMessage message={errors.conversionUrl} /></div></div></Card>
 <Card><Title>4. A/Bテスト設定</Title><div className="p-4 border rounded-lg bg-gray-100"><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useAbTest" checked={!formData.useAbTest} onChange={() => handleChange('useAbTest', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">しない</span></label><label className="flex items-center"><input type="radio" name="useAbTest" checked={formData.useAbTest} onChange={() => handleChange('useAbTest', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">する</span></label></div>{formData.useAbTest && <div className="space-y-6 mt-4 pt-4 pl-6 border-l-2 border-teal-100"><div id="field-container-formA_url" className="space-y-2"><SectionTitle>パターンAの公開URL</SectionTitle><Input placeholder="/form-a.html" value={formData.formA_url} onChange={e => handleChange('formA_url', e.target.value)} /><ErrorMessage message={errors.formA_url} /></div><div id="field-container-formB_url" className="space-y-2"><SectionTitle>パターンBの公開URL</SectionTitle><Input placeholder="/form-b.html" value={formData.formB_url} onChange={e => handleChange('formB_url', e.target.value)} /><ErrorMessage message={errors.formB_url} /></div><div className="space-y-2"><SectionTitle>テストする項目</SectionTitle><select value={formData.abTestItem} onChange={e => handleChange('abTestItem', e.target.value)} className="py-3 px-4 pe-9 block w-full border-gray-200 rounded-lg text-sm focus:border-teal-500 focus:ring-teal-500"><option disabled>選択してください</option>{AB_TEST_ITEMS.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
 {formData.abTestItem === 'フォームタイトル' && <div id="field-container-abTestTitleB" className="space-y-2"><SectionTitle>パターンBのフォームタイトル</SectionTitle><Input placeholder="新しいフォームタイトル" value={formData.abTestTitleB} onChange={e => handleChange('abTestTitleB', e.target.value)} /></div>}
