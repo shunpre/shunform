@@ -90,7 +90,7 @@ const Title: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const SectionTitle: React.FC<{ children: React.ReactNode; required?: boolean }> = ({ children, required }) => (
-    <h3 className="text-md font-semibold text-gray-800 mb-2">
+    <h3 className="text-md font-semibold text-gray-800 mb-3">
         {children}
         {required && <span className="text-red-600 text-sm ml-2">必須</span>}
     </h3>
@@ -169,12 +169,74 @@ export default function App() {
     const [generatedOutput, setGeneratedOutput] = useState<{ a?: string; b?: string; router?: string } | null>(null);
     const [activeTab, setActiveTab] = useState<'a' | 'b' | 'router'>('a');
     const [copied, setCopied] = useState(false);
+    const [itemSelectionError, setItemSelectionError] = useState<string | null>(null);
 
+    // Auto-sort selected items to keep groups together
     useEffect(() => {
-        if (formData.selectedItems.length > 0 && formData.abTestItemOrderB.length === 0) {
-            setFormData(prev => ({ ...prev, abTestItemOrderB: [...prev.selectedItems] }));
+        const autoSortSelectedItems = (items: FormItem[]): FormItem[] => {
+            const reordered: FormItem[] = [];
+            const processedIds = new Set<number>();
+            const groupDefs = [
+                [1, 2], // お名前, フリガナ
+                [3, 4, 5, 6], // 業種, 会社名/屋号, 部署名, 役職
+                [8, 9], // 生年月日, 性別
+                [10, 11], // メールアドレス, 電話番号
+                [13, 14], // お問い合わせ内容, 画像添付
+            ];
+            const findGroup = (id: number) => groupDefs.find(g => g.includes(id));
+
+            items.forEach(item => {
+                if (processedIds.has(item.id)) return;
+                const group = findGroup(item.id);
+                if (group) {
+                    const itemsInGroup = group.map(gid => items.find(i => i.id === gid)).filter((i): i is FormItem => !!i);
+                    reordered.push(...itemsInGroup);
+                    itemsInGroup.forEach(i => processedIds.add(i.id));
+                } else {
+                    reordered.push(item);
+                    processedIds.add(item.id);
+                }
+            });
+            return reordered;
+        };
+
+        const sorted = autoSortSelectedItems(formData.selectedItems);
+        const isSameOrder = formData.selectedItems.length === sorted.length && formData.selectedItems.every((item, index) => item.id === sorted[index].id);
+
+        if (!isSameOrder) {
+            setFormData(prev => ({ ...prev, selectedItems: sorted }));
         }
-    }, [formData.selectedItems, formData.abTestItemOrderB.length]);
+    }, [formData.selectedItems]);
+
+    // Synchronize the items for the Pattern B order list with the main selected items.
+    // This ensures that when the user adds or removes items from the form,
+    // the list for reordering Pattern B is updated to match, while preserving
+    // any custom order the user has already set for the remaining items.
+    useEffect(() => {
+        const selectedIds = new Set(formData.selectedItems.map(item => item.id));
+
+        // Filter the existing B-list to keep only items that are still selected in A.
+        // This preserves the custom order of B.
+        const preservedBItems = formData.abTestItemOrderB.filter(item => selectedIds.has(item.id));
+        const preservedBItemIds = new Set(preservedBItems.map(item => item.id));
+
+        // Find any items that were added to A and are not yet in B.
+        const newItemsForB = formData.selectedItems.filter(item => !preservedBItemIds.has(item.id));
+
+        // Combine the preserved list with the new items.
+        const newAbTestItemOrderB = [...preservedBItems, ...newItemsForB];
+
+        // Only update state if there's an actual change to prevent re-render loops.
+        if (newAbTestItemOrderB.length !== formData.abTestItemOrderB.length || 
+            !newAbTestItemOrderB.every((item, index) => item.id === formData.abTestItemOrderB[index]?.id)) {
+            
+            setFormData(prev => ({
+                ...prev,
+                abTestItemOrderB: newAbTestItemOrderB,
+            }));
+        }
+    }, [formData.selectedItems, formData.abTestItemOrderB]);
+
 
     const handleChange = useCallback(<K extends keyof FormData>(field: K, value: FormData[K] | string) => {
         setFormData(prev => ({ ...prev, [field]: value as any }));
@@ -215,29 +277,30 @@ export default function App() {
 
 
     const handleItemToggle = useCallback((item: FormItem) => {
-        setFormData(prev => {
-            const isAdding = !prev.selectedItems.some(i => i.id === item.id);
+        setItemSelectionError(null);
 
-            // Special logic for item 14 (File Upload)
-            if (item.id === 14 && isAdding) {
-                const hasItem13 = prev.selectedItems.some(i => i.id === 13);
-                if (!hasItem13) {
-                    if (window.confirm("「画像添付」には「お問い合わせ内容」の項目が必要です。一緒に追加しますか？\n（「いいえ」を選択すると、どちらも追加されません）")) {
-                        const item13 = FORM_ITEMS.find(i => i.id === 13)!;
-                        const item14 = FORM_ITEMS.find(i => i.id === 14)!;
-                        const updatedItems = [...prev.selectedItems, item13, item14];
-                        return { ...prev, selectedItems: updatedItems };
-                    } else {
-                        // User cancelled, so don't change the state
+        setFormData(prev => {
+            const currentSelected = [...prev.selectedItems];
+            const isCurrentlySelected = currentSelected.some(i => i.id === item.id);
+            let newSelectedItems: FormItem[];
+
+            if (isCurrentlySelected) {
+                // REMOVING an item
+                newSelectedItems = currentSelected.filter(i => i.id !== item.id);
+                if (item.id === 13) {
+                    newSelectedItems = newSelectedItems.filter(i => i.id !== 14);
+                }
+            } else {
+                // ADDING an item
+                if (item.id === 14) {
+                    const hasItem13 = currentSelected.some(i => i.id === 13);
+                    if (!hasItem13) {
+                        setItemSelectionError("「画像添付」を選択するには、先に「お問い合わせ内容」を選択してください。");
                         return prev;
                     }
                 }
+                newSelectedItems = [...currentSelected, item];
             }
-
-            // Default behavior for all other items, or for removing any item (including 14)
-            const newSelectedItems = isAdding
-                ? [...prev.selectedItems, item]
-                : prev.selectedItems.filter(i => i.id !== item.id);
             
             return { ...prev, selectedItems: newSelectedItems };
         });
@@ -468,23 +531,22 @@ export default function App() {
             <div className="max-w-4xl mx-auto space-y-6">
                 <div className="text-center mb-8">
                     <h1 className="text-3xl font-bold text-gray-800">瞬フォーム オーダーシート</h1>
-                    <p className="mt-2 text-gray-600">すべての項目を入力し、最後に「HTMLを生成」ボタンを押してください。</p>
+                    <p className="mt-2 text-gray-600">必要な項目を入力し、最後に「HTMLを生成」ボタンを押してください。</p>
                 </div>
 
                 <Card>
                     <Title>1. 基本設定</Title>
-                    <div id="field-container-title" className="space-y-4">
-                        <SectionTitle required>フォームタイトルとサブタイトル</SectionTitle>
-                        <div className="p-4 border rounded-lg bg-gray-50 space-y-4">
-                            <Input placeholder="フォームタイトル（例：かんたんお問い合わせ）" value={formData.title} onChange={e => handleChange('title', e.target.value)} />
-                            <ErrorMessage message={errors.title} />
-                            <Textarea placeholder="サブタイトル（例：所要時間：約1分・入力途中でも保存されます）" value={formData.subtitle} onChange={e => handleChange('subtitle', e.target.value)} rows={3} />
+                    <div className="space-y-6">
+                        <div id="field-container-title" className="p-4 border rounded-lg bg-gray-100">
+                            <SectionTitle required>フォームタイトルとサブタイトル</SectionTitle>
+                            <div className="space-y-4">
+                                <Input placeholder="フォームタイトル（例：かんたんお問い合わせ）" value={formData.title} onChange={e => handleChange('title', e.target.value)} />
+                                <ErrorMessage message={errors.title} />
+                                <Textarea placeholder="サブタイトル（例：所要時間：約1分・入力途中でも保存されます）" value={formData.subtitle} onChange={e => handleChange('subtitle', e.target.value)} rows={3} />
+                            </div>
                         </div>
-                    </div>
-                    <hr className="my-6" />
-                    <div id="field-container-gtmId">
-                        <SectionTitle>データ解析（GTM/GA4）</SectionTitle>
-                        <div className="p-4 border rounded-lg bg-gray-50">
+                        <div id="field-container-gtmId" className="p-4 border rounded-lg bg-gray-100">
+                            <SectionTitle>データ解析（GTM/GA4）</SectionTitle>
                             <div className="flex items-center space-x-4">
                                 <label className="flex items-center"><input type="radio" name="useAnalytics" checked={!formData.useAnalytics} onChange={() => handleChange('useAnalytics', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">しない</span></label>
                                 <label className="flex items-center"><input type="radio" name="useAnalytics" checked={formData.useAnalytics} onChange={() => handleChange('useAnalytics', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">する</span></label>
@@ -501,9 +563,19 @@ export default function App() {
 
                 <Card>
                     <Title>2. フォーム項目</Title>
+                    <div className="mb-4 p-3 text-xs text-gray-600 bg-gray-100 rounded-lg">
+                        <strong>グルーピング仕様:</strong><br />
+                        以下の項目は、同時に選択するとフォームの同じページにまとめて表示されます。このリスト上でも隣り合うように自動で並び替えられます。<br/>
+                        ・お名前 + フリガナ<br/>
+                        ・業種, 会社名/屋号, 部署名, 役職 (2つ以上選択時)<br/>
+                        ・生年月日 + 性別<br/>
+                        ・メールアドレス + 電話番号<br/>
+                        ・お問い合わせ内容 + 画像添付
+                    </div>
                     <div id="field-container-selectedItems" className="grid grid-cols-1 md:grid-cols-2 gap-6">
                        <div>
-                            <SectionTitle>利用可能な項目</SectionTitle>
+                            <SectionTitle>利用可能な項目<span className="text-red-600 text-sm ml-2 font-normal">(1つ以上の選択必須)</span></SectionTitle>
+                            {itemSelectionError && <ErrorMessage message={itemSelectionError} />}
                             <div className="space-y-2 max-h-96 overflow-y-auto p-2 border rounded-lg bg-white">
                                 {FORM_ITEMS.map(item => (<label key={item.id} className="flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" checked={hasItem(item.id)} onChange={() => handleItemToggle(item)} className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-3 text-sm text-gray-700">{item.name}</span></label>))}
                             </div>
@@ -519,8 +591,8 @@ export default function App() {
                     
                     {(hasItem(15) || hasItem(16) || hasItem(17) || hasItem(18)) && <>
                         <hr className="my-6" />
-                        <div className="p-4 border rounded-lg bg-gray-50 space-y-4">
-                            {hasItem(15) && <div id="field-container-otherItems" className="space-y-2"><SectionTitle>その他（text項目）</SectionTitle><Textarea placeholder="改行区切りで項目名を入力（例：紹介コード）" value={formData.otherItems} onChange={e => handleChange('otherItems', e.target.value)} rows={3} /><ErrorMessage message={errors.otherItems} /></div>}
+                        <div className="p-4 border rounded-lg bg-gray-100 space-y-4">
+                            {hasItem(15) && <div id="field-container-otherItems" className="space-y-2"><SectionTitle>カスタム項目（テキスト入力）</SectionTitle><Textarea placeholder="改行区切りで項目名を入力（例：紹介コード）" value={formData.otherItems} onChange={e => handleChange('otherItems', e.target.value)} rows={3} /><ErrorMessage message={errors.otherItems} /></div>}
                             {hasItem(16) && <div id="field-container-radioItems" className="space-y-2 mt-4"><SectionTitle>ラジオボタン</SectionTitle><Input placeholder="タイトル" value={formData.radioItems.title} onChange={e => handleChange('radioItems', { ...formData.radioItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.radioItems.options} onChange={e => handleChange('radioItems', { ...formData.radioItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.radioItems as string} /></div>}
                             {hasItem(17) && <div id="field-container-checkboxItems" className="space-y-2 mt-4"><SectionTitle>チェックボックス</SectionTitle><Input placeholder="タイトル" value={formData.checkboxItems.title} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.checkboxItems.options} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.checkboxItems as string} /></div>}
                             {hasItem(18) && <div id="field-container-pulldownItems" className="space-y-2 mt-4"><SectionTitle>プルダウン</SectionTitle><Input placeholder="タイトル" value={formData.pulldownItems.title} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.pulldownItems.options} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, options: e.target.value })} rows={3} /><ErrorMessage message={errors.pulldownItems as string} /></div>}
@@ -528,145 +600,129 @@ export default function App() {
                     </>}
 
                     <hr className="my-6" />
-                    <div>
+                    <div className="p-4 border rounded-lg bg-gray-100">
                         <SectionTitle>任意にする項目の指定</SectionTitle>
-                        <div className="p-4 border rounded-lg bg-gray-50">
-                          <div className="space-y-2 max-h-60 overflow-y-auto">{formData.selectedItems.map(item => (<label key={item.id} className="flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" checked={formData.optionalItems.some(i => i.id === item.id)} onChange={() => handleOptionalItemToggle(item)} className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-3 text-sm text-gray-700">{item.name}</span></label>))}</div>
-                        </div>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">{formData.selectedItems.map(item => (<label key={item.id} className="flex items-center p-2 rounded-md hover:bg-gray-50 cursor-pointer"><input type="checkbox" checked={formData.optionalItems.some(i => i.id === item.id)} onChange={() => handleOptionalItemToggle(item)} className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-3 text-sm text-gray-700">{item.name}</span></label>))}</div>
                     </div>
                 </Card>
                 
                 <Card>
-                    <Title>3. フォームの挙動とデザイン</Title>
+                    <Title>3. 表示オプションと連携設定</Title>
                     <div className="space-y-6">
-                        <div>
+                        <div className="p-4 border rounded-lg bg-gray-100 space-y-4">
                             <SectionTitle>吹き出し用の画像</SectionTitle>
-                            <div className="p-4 border rounded-lg bg-gray-50 space-y-4">
-                                <div>
-                                    <label className="text-sm font-medium text-gray-600">共通アバター画像URL</label>
-                                    <Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} />
-                                </div>
-                                <div className="mt-4">
-                                    <label className="text-sm font-medium text-gray-600">項目別アバター画像URL（共通設定を上書き）</label>
-                                    <div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">
-                                        {groupedItems.map((item, index) => {
-                                            const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name;
-                                            const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || '';
-                                            return (
-                                                <div key={index}>
-                                                    <label className="text-xs text-gray-500 block mb-1">{groupName}</label>
-                                                    <Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} />
-                                                </div>
-                                            )
-                                        })}
-                                        {(() => {
-                                            const groupName = '確認画面';
-                                            const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || '';
-                                            return (
-                                                <div>
-                                                    <label className="text-xs text-gray-500 block mb-1">{groupName}</label>
-                                                    <Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} />
-                                                </div>
-                                            )
-                                        })()}
-                                    </div>
+                            <div>
+                                <label className="text-sm font-medium text-gray-600">共通アバター画像URL</label>
+                                <Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} />
+                            </div>
+                            <div className="mt-4">
+                                <label className="text-sm font-medium text-gray-600">項目別アバター画像URL</label>
+                                <p className="text-xs text-gray-500 mb-2">共通アバターを変更するページのみ</p>
+                                <div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">
+                                    {groupedItems.map((item, index) => {
+                                        const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name;
+                                        const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || '';
+                                        return (
+                                            <div key={index}>
+                                                <label className="text-xs text-gray-500 block mb-1">{groupName}</label>
+                                                <Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} />
+                                            </div>
+                                        )
+                                    })}
+                                    {(() => {
+                                        const groupName = '確認画面';
+                                        const specificUrl = formData.avatarImages.specific.find(s => s.itemName === groupName)?.url || '';
+                                        return (
+                                            <div>
+                                                <label className="text-xs text-gray-500 block mb-1">{groupName}</label>
+                                                <Input placeholder={`「${groupName}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(groupName, e.target.value)} />
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
                             </div>
                         </div>
                         
-                        <div>
+                        <div className="p-4 border rounded-lg bg-gray-100">
                             <SectionTitle>吹き出し用のセリフ</SectionTitle>
-                            <div className="p-4 border rounded-lg bg-gray-50 space-y-4 max-h-96 overflow-y-auto">
+                            <p className="text-xs text-gray-500 mb-3">無記入の場合は、各項目のタイトルがセリフとして表示されます。</p>
+                            <div className="space-y-4 max-h-96 overflow-y-auto">
                               {groupedItems.map((item, index) => { const groupName = Array.isArray(item) ? item.map(i => i.name).join('・') : item.name; return (<div key={index}><label className="text-sm font-medium text-gray-600">{groupName}</label><Input placeholder={`「${groupName}」のセリフ`} value={formData.bubbleTexts[groupName] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, [groupName]: e.target.value})} /></div>)})}
                               <div><label className="text-sm font-medium text-gray-600">確認画面</label><Input placeholder="確認画面のセリフ" value={formData.bubbleTexts['確認画面'] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, '確認画面': e.target.value})} /></div>
                             </div>
                         </div>
 
-                        <div id="field-container-submitButtonText">
+                        <div id="field-container-submitButtonText" className="p-4 border rounded-lg bg-gray-100">
                           <SectionTitle>送信ボタンの文言</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50">
                             <Input placeholder="送信" value={formData.submitButtonText} onChange={e => handleChange('submitButtonText', e.target.value)} />
-                          </div>
                         </div>
-                        <div id="field-container-privacyPolicyUrl">
+                        <div id="field-container-privacyPolicyUrl" className="p-4 border rounded-lg bg-gray-100">
                           <SectionTitle required>個人情報の取り扱いリンクURL</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50">
                             <Input type="url" placeholder="https://example.com/privacy" value={formData.privacyPolicyUrl} onChange={e => handleChange('privacyPolicyUrl', e.target.value)} />
                             <ErrorMessage message={errors.privacyPolicyUrl} />
-                          </div>
                         </div>
-                        <div>
+                        <div className="p-4 border rounded-lg bg-gray-100">
                           <SectionTitle>ニュースレター購読チェックボックス</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50">
                             <div className="flex items-center space-x-4">
                               <label className="flex items-center"><input type="radio" name="useNewsletter" checked={!formData.useNewsletter} onChange={() => handleChange('useNewsletter', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label>
                               <label className="flex items-center"><input type="radio" name="useNewsletter" checked={formData.useNewsletter} onChange={() => handleChange('useNewsletter', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label>
                             </div>
                             {formData.useNewsletter && <Input className="mt-4" placeholder="ニュースレター/最新情報を受け取る" value={formData.newsletterText} onChange={e => handleChange('newsletterText', e.target.value)} />}
-                          </div>
                         </div>
-                        <div id="field-container-recaptchaSiteKey">
+                        <div id="field-container-recaptchaSiteKey" className="p-4 border rounded-lg bg-gray-100">
                             <SectionTitle>reCAPTCHA v3</SectionTitle>
-                            <div className="p-4 border rounded-lg bg-gray-50">
-                                <div className="flex items-center space-x-4">
-                                    <label className="flex items-center"><input type="radio" name="useRecaptcha" checked={!formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label>
-                                    <label className="flex items-center"><input type="radio" name="useRecaptcha" checked={formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label>
-                                </div>
-                                {formData.useRecaptcha && <div className="mt-4">
-                                    <Input placeholder="サイトキー" value={formData.recaptchaSiteKey} onChange={e => handleChange('recaptchaSiteKey', e.target.value)} />
-                                    <ErrorMessage message={errors.recaptchaSiteKey} />
-                                </div>}
+                            <div className="flex items-center space-x-4">
+                                <label className="flex items-center"><input type="radio" name="useRecaptcha" checked={!formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label>
+                                <label className="flex items-center"><input type="radio" name="useRecaptcha" checked={formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label>
                             </div>
+                            {formData.useRecaptcha && <div className="mt-4">
+                                <Input placeholder="サイトキー" value={formData.recaptchaSiteKey} onChange={e => handleChange('recaptchaSiteKey', e.target.value)} />
+                                <ErrorMessage message={errors.recaptchaSiteKey} />
+                            </div>}
                         </div>
-                        <div id="field-container-gasUrl">
+                        <div id="field-container-gasUrl" className="p-4 border rounded-lg bg-gray-100">
                           <SectionTitle required>GAS WebアプリURL</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50">
                             <Input type="url" placeholder="https://script.google.com/macros/s/.../exec" value={formData.gasUrl} onChange={e => handleChange('gasUrl', e.target.value)} />
                             <ErrorMessage message={errors.gasUrl} />
-                          </div>
                         </div>
-                        <div id="field-container-conversionUrl">
+                        <div id="field-container-conversionUrl" className="p-4 border rounded-lg bg-gray-100">
                           <SectionTitle required>サンクスページURL</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50">
                             <Textarea placeholder="https://example.com/thanks" value={formData.conversionUrl} onChange={e => handleChange('conversionUrl', e.target.value)} rows={2}/>
                             <ErrorMessage message={errors.conversionUrl} />
-                          </div>
                         </div>
                     </div>
                 </Card>
 
                 <Card>
                     <Title>4. A/Bテスト設定</Title>
-                    <div className="p-4 border rounded-lg bg-gray-50">
-                        <SectionTitle>フォームのA/Bテスト</SectionTitle>
-                        <div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useAbTest" checked={!formData.useAbTest} onChange={() => handleChange('useAbTest', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">しない</span></label><label className="flex items-center"><input type="radio" name="useAbTest" checked={formData.useAbTest} onChange={() => handleChange('useAbTest', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">する</span></label></div>
-                    </div>
-                    {formData.useAbTest && <div className="space-y-6 mt-6 pl-6 border-l-2 border-teal-100">
-                        <div id="field-container-formA_url">
-                          <SectionTitle>フォームA/BのURL</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50 space-y-2">
-                            <Input placeholder="フォームAのURL" value={formData.formA_url} onChange={e => handleChange('formA_url', e.target.value)} />
-                            <ErrorMessage message={errors.formA_url} />
-                            <Input placeholder="フォームBのURL" value={formData.formB_url} onChange={e => handleChange('formB_url', e.target.value)} />
-                            <ErrorMessage message={errors.formB_url} />
-                          </div>
+                    <div className="space-y-6">
+                        <div className="p-4 border rounded-lg bg-gray-100">
+                            <SectionTitle>フォームのA/Bテスト</SectionTitle>
+                            <div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useAbTest" checked={!formData.useAbTest} onChange={() => handleChange('useAbTest', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">しない</span></label><label className="flex items-center"><input type="radio" name="useAbTest" checked={formData.useAbTest} onChange={() => handleChange('useAbTest', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">する</span></label></div>
                         </div>
-                        <div>
-                          <SectionTitle>パターンBでテストする項目</SectionTitle>
-                          <div className="p-4 border rounded-lg bg-gray-50 space-y-2">
-                            {AB_TEST_ITEMS.map(item => (<label key={item} className="flex items-center p-3 rounded-lg border border-gray-200 bg-white has-[:checked]:bg-teal-50 has-[:checked]:border-teal-200"><input type="radio" name="abTestItem" value={item} checked={formData.abTestItem === item} onChange={() => handleChange('abTestItem', item)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-3 text-sm">{item}</span></label>))}
-                          </div>
-                        </div>
-                        <div>
-                            <SectionTitle>パターンBの変更内容</SectionTitle>
-                            <div className="p-4 border rounded-lg bg-gray-50">
-                              {formData.abTestItem === 'フォームタイトル' && <div><Input value={formData.abTestTitleB} onChange={e => handleChange('abTestTitleB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.title}</p></div>}
-                              {formData.abTestItem === 'フォームサブタイトル' && <div><Textarea value={formData.abTestSubtitleB} onChange={e => handleChange('abTestSubtitleB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.subtitle}</p></div>}
-                              {formData.abTestItem === '送信ボタンの文言' && <div><Input value={formData.abTestSubmitButtonTextB} onChange={e => handleChange('abTestSubmitButtonTextB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.submitButtonText || '送信'}</p></div>}
-                              {formData.abTestItem === '質問の順番' && <div><ReorderableList items={formData.abTestItemOrderB} onMove={(oldIndex, newIndex) => handleMoveItem('abTestItemOrderB', oldIndex, newIndex)} /></div>}
+                        {formData.useAbTest && <div className="space-y-6 mt-6 pl-6 border-l-2 border-teal-100">
+                            <div id="field-container-formA_url" className="p-4 border rounded-lg bg-gray-100 space-y-2">
+                              <SectionTitle>フォームA/BのURL</SectionTitle>
+                                <Input placeholder="フォームAのURL" value={formData.formA_url} onChange={e => handleChange('formA_url', e.target.value)} />
+                                <ErrorMessage message={errors.formA_url} />
+                                <Input placeholder="フォームBのURL" value={formData.formB_url} onChange={e => handleChange('formB_url', e.target.value)} />
+                                <ErrorMessage message={errors.formB_url} />
                             </div>
-                        </div>
-                    </div>}
+                            <div className="p-4 border rounded-lg bg-gray-100">
+                              <SectionTitle>パターンBでテストする項目</SectionTitle>
+                              <div className="space-y-2">
+                                {AB_TEST_ITEMS.map(item => (<label key={item} className="flex items-center p-3 rounded-lg border border-gray-200 bg-white has-[:checked]:bg-teal-50 has-[:checked]:border-teal-200"><input type="radio" name="abTestItem" value={item} checked={formData.abTestItem === item} onChange={() => handleChange('abTestItem', item)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-3 text-sm">{item}</span></label>))}
+                              </div>
+                            </div>
+                            <div className="p-4 border rounded-lg bg-gray-100">
+                                <SectionTitle>パターンBの変更内容</SectionTitle>
+                                {formData.abTestItem === 'フォームタイトル' && <div><Input value={formData.abTestTitleB} onChange={e => handleChange('abTestTitleB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.title}</p></div>}
+                                {formData.abTestItem === 'フォームサブタイトル' && <div><Textarea value={formData.abTestSubtitleB} onChange={e => handleChange('abTestSubtitleB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.subtitle}</p></div>}
+                                {formData.abTestItem === '送信ボタンの文言' && <div><Input value={formData.abTestSubmitButtonTextB} onChange={e => handleChange('abTestSubmitButtonTextB', e.target.value)} /><p className="text-xs text-gray-500 mt-1">パターンA: {formData.submitButtonText || '送信'}</p></div>}
+                                {formData.abTestItem === '質問の順番' && <div><ReorderableList items={formData.abTestItemOrderB} onMove={(oldIndex, newIndex) => handleMoveItem('abTestItemOrderB', oldIndex, newIndex)} /></div>}
+                            </div>
+                        </div>}
+                    </div>
                 </Card>
 
                 <div className="flex justify-center pt-4">
