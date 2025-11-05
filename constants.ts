@@ -446,7 +446,7 @@ export const FORM_ITEMS: FormItem[] = [
   { id: 12, name: "WebサイトURL" },
   { id: 13, name: "お問い合わせ内容（自由記入欄）" },
   { id: 14, name: "画像添付（最大5枚・合計5MB）" },
-  { id: 15, name: "その他（text項目のみ追加できます）" },
+  { id: 15, name: "カスタム項目（text項目のみ追加できます）" },
   { id: 16, name: "ラジオボタン（複数選択不可）" },
   { id: 17, name: "チェックボックス（複数選択可）" },
   { id: 18, name: "プルダウン（1つ選択）" },
