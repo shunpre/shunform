@@ -1,0 +1,5 @@
+{
+  "name": "瞬フォームアプリ",
+  "description": "An application that generates a complete HTML form based on a series of questions. It takes user requirements for form fields, design, and functionality, then outputs a ready-to-use HTML file with all necessary scripts and configurations.",
+  "requestFramePermissions": []
+}
