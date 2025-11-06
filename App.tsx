@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS, GAS_CODE_TEMPLATE, SIDEBAR_HTML_TEMPLATE } from './constants';
@@ -17,7 +18,7 @@ const initialFormData: FormData = {
   gtmId: '',
   ga4Id: '',
   selectedItems: [],
-  customItem: { title: '' },
+  customItem: { title: '', label: '' },
   radioItems: { title: '', options: '' },
   checkboxItems: { title: '', options: '' },
   pulldownItems: { title: '', options: '' },
@@ -214,18 +215,41 @@ const ReorderableList: React.FC<{
 const VideoModal: React.FC<{ isOpen: boolean; onClose: () => void; videoUrl: string }> = ({ isOpen, onClose, videoUrl }) => {
     if (!isOpen) return null;
 
+    const getEmbedInfo = (url: string): { type: 'iframe' | 'video'; src: string } => {
+        const googleDriveRegex = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+        const match = url.match(googleDriveRegex);
+
+        if (match && match[1]) {
+            const fileId = match[1];
+            return { type: 'iframe', src: `https://drive.google.com/file/d/${fileId}/preview` };
+        }
+        return { type: 'video', src: url };
+    };
+
+    const embedInfo = getEmbedInfo(videoUrl);
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-white rounded-lg overflow-hidden shadow-2xl w-full max-w-4xl" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center p-4 border-b">
                     <h3 className="text-lg font-semibold text-gray-800">GASの設定方法</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">&times;</button>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-3xl leading-none font-bold">&times;</button>
                 </div>
-                <div className="p-4 bg-black">
-                    <video controls autoPlay className="w-full max-h-[80vh]">
-                        <source src={videoUrl} type="video/mp4" />
-                        お使いのブラウザはビデオ再生に対応していません。
-                    </video>
+                <div className="bg-black aspect-video">
+                    {embedInfo.type === 'video' ? (
+                        <video controls autoPlay className="w-full h-full">
+                            <source src={embedInfo.src} type="video/mp4" />
+                            お使いのブラウザはビデオ再生に対応していません。
+                        </video>
+                    ) : (
+                        <iframe
+                            src={embedInfo.src}
+                            className="w-full h-full"
+                            frameBorder="0"
+                            allow="autoplay; fullscreen"
+                            allowFullScreen
+                        ></iframe>
+                    )}
                 </div>
             </div>
         </div>
@@ -441,11 +465,20 @@ export default function App() {
                 case 12: cfg.fields.push({ id: 'website', type: 'url', ...commonProps }); break;
                 case 13: cfg.fields.push({ id: 'inquiry', type: 'textarea', ...commonProps }); break;
                 case 14: cfg.fields.push({ id: 'file_upload', type: 'file', ...commonProps }); break;
-                case 15:
-                    if (finalData.customItem.title.trim()) {
-                        cfg.fields.push({ id: 'custom_text_0', type: 'text', label: finalData.customItem.title.trim(), required: isRequired, message });
+                case 15: {
+                    const customTitle = finalData.customItem.title.trim();
+                    const customLabel = finalData.customItem.label.trim();
+                    if (customLabel) {
+                        cfg.fields.push({
+                            id: 'custom_text_0',
+                            type: 'text',
+                            label: customLabel,
+                            required: isRequired,
+                            message: customTitle || message || customLabel,
+                        });
                     }
                     break;
+                }
                 case 16: cfg.fields.push({ id: 'custom_radio', type: 'radio', label: finalData.radioItems.title, choices: finalData.radioItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
                 case 17: cfg.fields.push({ id: 'custom_checkbox', type: 'checkbox', label: finalData.checkboxItems.title, choices: finalData.checkboxItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
                 case 18: cfg.fields.push({ id: 'custom_select', type: 'select', label: finalData.pulldownItems.title, choices: finalData.pulldownItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
@@ -481,7 +514,7 @@ export default function App() {
             if (!formData.ga4Id.trim().match(/^G-[A-Z0-9]{10,}$/)) newErrors.ga4Id = '正しいGA4測定IDを入力してください (例: G-XXXXXXXXXX)。';
         }
         if (formData.selectedItems.length === 0) newErrors.selectedItems = 'フォームに入れる項目を1つ以上選択してください。';
-        if (hasItem(15) && !formData.customItem.title.trim()) newErrors.customItem = 'カスタム項目のタイトルを入力してください。';
+        if (hasItem(15) && !formData.customItem.label.trim()) newErrors.customItem = 'カスタム項目の項目名を入力してください。';
         if (hasItem(16)) { if (!formData.radioItems.title.trim() || !formData.radioItems.options.trim()) newErrors.radioItems = 'ラジオボタンのタイトルと選択肢を両方入力してください。'; }
         if (hasItem(17)) { if (!formData.checkboxItems.title.trim() || !formData.checkboxItems.options.trim()) newErrors.checkboxItems = 'チェックボックスのタイトルと選択肢を両方入力してください。'; }
         if (hasItem(18)) { if (!formData.pulldownItems.title.trim() || !formData.pulldownItems.options.trim()) newErrors.pulldownItems = 'プルダウンのタイトルと選択肢を両方入力してください。'; }
@@ -549,7 +582,10 @@ export default function App() {
                         <ErrorMessage message={errors.selectedItems as string} />
                         {(hasItem(15) || hasItem(16) || hasItem(17) || hasItem(18)) &&
                             <div className="p-4 border rounded-lg bg-gray-100 space-y-4">
-                                {hasItem(15) && <div id="field-container-customItem" className="space-y-2"><SectionTitle>カスタム項目</SectionTitle><Input placeholder="項目名（例：紹介コード）" value={formData.customItem.title} onChange={e => handleChange('customItem', { ...formData.customItem, title: e.target.value })} /><ErrorMessage message={errors.customItem} /></div>}
+                                {hasItem(15) && <div id="field-container-customItem" className="space-y-2"><SectionTitle>カスタム項目</SectionTitle>
+                                    <Input placeholder="タイトル（例：その他情報）" value={formData.customItem.title} onChange={e => handleChange('customItem', { ...formData.customItem, title: e.target.value })} />
+                                    <Input placeholder="項目名（例：紹介コード）" value={formData.customItem.label} onChange={e => handleChange('customItem', { ...formData.customItem, label: e.target.value })} />
+                                    <ErrorMessage message={errors.customItem} /></div>}
                                 {hasItem(16) && <div id="field-container-radioItems" className="space-y-2 mt-4"><SectionTitle>ラジオボタン</SectionTitle><Input placeholder="タイトル" value={formData.radioItems.title} onChange={e => handleChange('radioItems', { ...formData.radioItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.radioItems.options} onChange={e => handleChange('radioItems', { ...formData.radioItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.radioItems as string} /></div>}
                                 {hasItem(17) && <div id="field-container-checkboxItems" className="space-y-2 mt-4"><SectionTitle>チェックボックス</SectionTitle><Input placeholder="タイトル" value={formData.checkboxItems.title} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.checkboxItems.options} onChange={e => handleChange('checkboxItems', { ...formData.checkboxItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.checkboxItems as string} /></div>}
                                 {hasItem(18) && <div id="field-container-pulldownItems" className="space-y-2 mt-4"><SectionTitle>プルダウン</SectionTitle><Input placeholder="タイトル" value={formData.pulldownItems.title} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, title: e.target.value })} /><Textarea placeholder="選択肢（改行区切り）" value={formData.pulldownItems.options} onChange={e => handleChange('pulldownItems', { ...formData.pulldownItems, options: e.target.value })} rows={3} /><p className="text-xs text-gray-500 mt-1">ヒント：「その他」という選択肢を追加すると、ユーザーが自由入力できるテキスト欄が表示されます。</p><ErrorMessage message={errors.pulldownItems as string} /></div>}
@@ -568,8 +604,8 @@ export default function App() {
 <div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>ニュースレター購読チェックボックス</SectionTitle><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useNewsletter" checked={!formData.useNewsletter} onChange={() => handleChange('useNewsletter', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label><label className="flex items-center"><input type="radio" name="useNewsletter" checked={formData.useNewsletter} onChange={() => handleChange('useNewsletter', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label></div>{formData.useNewsletter && <Input className="mt-4" placeholder="ニュースレター/最新情報を受け取る" value={formData.newsletterText} onChange={e => handleChange('newsletterText', e.target.value)} />}</div>
 <div id="field-container-recaptchaSiteKey" className="p-4 border rounded-lg bg-gray-100"><SectionTitle>reCAPTCHA v3</SectionTitle><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useRecaptcha" checked={!formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">使わない</span></label><label className="flex items-center"><input type="radio" name="useRecaptcha" checked={formData.useRecaptcha} onChange={() => handleChange('useRecaptcha', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">使う</span></label></div>{formData.useRecaptcha && <div className="mt-4 pl-6 border-l-2 border-teal-100"><Input placeholder="サイトキー" value={formData.recaptchaSiteKey} onChange={e => handleChange('recaptchaSiteKey', e.target.value)} /><ErrorMessage message={errors.recaptchaSiteKey} /></div>}</div>
 <div id="field-container-gasUrl" className="p-4 border rounded-lg bg-gray-100">
-    <SectionTitle>Google Apps Script (GAS) 連携</SectionTitle>
-    <p className="text-xs text-gray-600 mb-3">フォームの送信データをGASで受信し、自動返信メールやスプレッドシートへの記録を行います。下記の手順に従って設定してください。</p>
+    <SectionTitle required>Google Apps Script (GAS) 連携</SectionTitle>
+    <p className="text-xs text-gray-600 mb-3">フォームの送信データをGASで受信し、自動返信メールやスプレッドシートへの記録を行います。動画の手順に従って設定してください。</p>
     
     <label className="text-sm font-medium text-gray-600 block mt-4">【必須】GAS WebアプリURL</label>
     <Input className="mt-1 w-full" placeholder="https://script.google.com/macros/s/..." value={formData.gasUrl} onChange={e => handleChange('gasUrl', e.target.value)} />
