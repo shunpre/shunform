@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS, GAS_CODE_TEMPLATE, SIDEBAR_HTML_TEMPLATE } from './constants';
@@ -7,7 +5,7 @@ import { arrayMoveImmutable as arrayMove } from 'array-move';
 
 // --- ▼ 動画URL設定 ▼ ---
 // GASの設定方法を解説する動画のURLをここに設定してください
-const GAS_TUTORIAL_VIDEO_URL = 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+const GAS_TUTORIAL_VIDEO_URL = 'https://drive.google.com/file/d/1TLE39YEVd9fFemRQb0fpFzDAJx0O-3Rr/view?usp=sharing';
 // -------------------------
 
 
