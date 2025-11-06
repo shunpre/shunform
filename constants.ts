@@ -47,8 +47,8 @@ export const SIDEBAR_HTML_TEMPLATE = `
     <label>会社名</label><input id="LEGAL_COMPANY" type="text" placeholder="株式会社グリーンリーフ">
     <label>所在地</label><input id="LEGAL_ADDRESS" type="text" placeholder="〒150-0001 東京都渋谷区...">
     <label>電話</label><input id="LEGAL_TEL" type="text" placeholder="03-1234-5678">
-    <label>代表者</label><input id="LEGAL_REP" type="text">
-    <label>お問い合わせ窓口</label><input id="LEGAL_CONTACT" type="text">
+    <label>代表者</label><input id="LEGAL_REP" type="text" placeholder="山田太郎">
+    <label>お問い合わせ窓口</label><input id="LEGAL_CONTACT" type="text" placeholder="営業部 佐藤次郎">
     <label>メールアドレス</label><input id="LEGAL_EMAIL" type="text" placeholder="support@example.com">
     <label>営業時間</label><input id="LEGAL_HOURS" type="text" placeholder="平日 10:00–18:00">
     <label>WebサイトURL</label><input id="LEGAL_WEB" type="text" placeholder="https://example.com">
@@ -460,9 +460,9 @@ export const AB_TEST_ITEMS = [
 ];
 export const GAS_CODE_TEMPLATE = `
 /** =====================================================================
-*  フォーム受付 完全版（Webアプリ）- カスタムメール & ガイド作成機能付き
-*  - 初心者向け改善パッチ Ver.4.1 (最終修正版)
-*  - 追加修正: 添付リンク（スプシのみ）/ メールはサムネのみ / 重複添付防止 / 先頭0維持 / 共有＝固定anyone
+* フォーム受付 完全版（Webアプリ）- カスタムメール & ガイド作成機能付き
+* - 初心者向け改善パッチ Ver.4.1 (最終修正版)
+* - 追加修正: 添付リンク（スプシのみ）/ メールはサムネのみ / 重複添付防止 / 先頭0維持 / 共有＝固定anyone
 * ===================================================================== */
 
 /* ========================= デフォルト・テンプレ ========================= */
@@ -477,14 +477,16 @@ const DEFAULT_AUTO_REPLY_BODY = [
   '―― ご入力内容 ――',
   '{{INPUTS_TEXT}}','',
   '―― お急ぎのお客様へ ――',
-  '・お急ぎの場合は下記までお電話ください。','',
-  '―― 発信者情報（リーガル表記）――',
+  '・お急ぎの場合は{{LEGAL_TEL}}までお電話ください。','',
+  '―― 発信者情報――',
   '会社名  : {{LEGAL_COMPANY}}',
   '所在地  : {{LEGAL_ADDRESS}}',
-  '電話   : {{LEGAL_TEL}}',
+  '電話    : {{LEGAL_TEL}}',
+  '代表者  : {{LEGAL_REP}}',
+  'お問い合わせ窓口: {{LEGAL_CONTACT}}',
   'メール  : {{LEGAL_EMAIL}}',
   '営業時間 : {{LEGAL_HOURS}}',
-  'Web   : {{LEGAL_WEB}}',
+  'Web     : {{LEGAL_WEB}}',
   '個人情報保護方針: {{LEGAL_PRIVACY_URL}}','',
   '※本メールは送信専用です。ご返信の際は {{LEGAL_EMAIL}} 宛にお願いいたします。',
   '――――――――――――――――――――',
@@ -500,16 +502,12 @@ const DEFAULT_NOTIFY_BODY = [
   'フォーム : {{FORM}}',
   '受信経路 : Webフォーム',
   'Reply-To : {{EMAIL}}',
-  'UA     : {{USER_AGENT}}','',
+  'UA      : {{USER_AGENT}}','',
   '▼入力内容',
   '{{INPUTS_TEXT}}','',
   '▼対応メモ',
   '・1～2営業日以内に一次返信。',
-  '・見積りのため要ヒアリング：現行ページ数、CMS有無、素材有無、納期。','',
-  '―― フッター（自動挿入）――',
-  '会社名  : {{LEGAL_COMPANY}} / {{LEGAL_WEB}}',
-  '連絡先  : {{LEGAL_TEL}} / {{LEGAL_EMAIL}}',
-  '個人情報保護方針: {{LEGAL_PRIVACY_URL}}'
+  '・見積りのため要ヒアリング：現行ページ数、CMS有無、素材有無、納期。'
 ].join('\\n');
 
 /* ============================== 基本ユーティリティ ============================== */
@@ -824,7 +822,7 @@ function buildAttachments_(files) {
 }
 
 /* === リーガル空欄行を丸ごと非表示にする（自動返信用） === */
-var LEGAL_LABELS_ = ['会社名','所在地','電話','メール','営業時間','Web','個人情報保護方針'];
+var LEGAL_LABELS_ = ['会社名','所在地','電話','代表者','お問い合わせ窓口','メール','営業時間','Web','個人情報保護方針'];
 function stripEmptyLegalLines_(text){
   // 「ラベル : 」で終わる行を削除（対象ラベル限定）
   var esc = function(s){ return s.replace(/[-/\\^$*+?.()|[\\\]{}]/g,'\\\\$&'); };

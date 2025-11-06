@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS, GAS_CODE_TEMPLATE, SIDEBAR_HTML_TEMPLATE } from './constants';
@@ -582,9 +583,11 @@ export default function App() {
         <div className="mt-4 space-y-4">
             <div>
                 <p className="text-sm text-gray-800 mb-2">
-                    <span className="font-bold">1. </span> 
-                    <a href="https://script.google.com/home/my" target="_blank" rel="noopener noreferrer" className="text-teal-600 underline hover:text-teal-700">Google Apps Script</a>
-                    で新規プロジェクトを作成し、以下の2つのファイルを準備します。
+                    <span className="font-bold">1. </span>
+                    <a href="https://sheets.new" target="_blank" rel="noopener noreferrer" className="text-teal-600 underline hover:text-teal-700">
+                        新規Googleスプレッドシート
+                    </a>
+                    を開き、メニューから「拡張機能」{' > '}「Apps Script」を選択してスクリプトエディタを開きます。その後、以下の2つのファイルを準備してください。
                 </p>
             </div>
             <CodeBlock
