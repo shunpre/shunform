@@ -1,3 +1,5 @@
+
+
 import { FormItem } from './types';
 
 export const SIDEBAR_HTML_TEMPLATE = `
@@ -372,9 +374,7 @@ export const HTML_TEMPLATE = `
 </style>
 
 <!-- ▼▼▼ ここにAIが生成した window.CFG を貼り付けてください ▼▼▼ -->
-<script>
-// Will be replaced by the generator
-</script>
+
 <!-- ▲▲▲ ここまで ▲▲▲ -->
 
 <script>
@@ -1479,14 +1479,12 @@ document.addEventListener('DOMContentLoaded', () => {
     box.innerHTML = \`<div class="confirm-panel">\${items.map(it=>\`<div class="confirm-item"><div class="confirm-label">\${esc(it.l)}</div><div class="confirm-value-wrapper"><div class="confirm-value">\${esc(it.v)}</div><button type="button" class="btn ghost" data-edit-step="\${it.step}" \${it.focus?\`data-focus="\${it.focus}"\`:' '}>修正</button></div></div>\`).join('')}</div>\`;
   }
 
-  // [パッチ適用] submitNow全体を差し替え
   function submitNow() {
     const btn = $('#submitBtn');
     btn.disabled = true;
     showSendingOverlay(true, '送信中です...');
 
     const finalize = async () => {
-      // reCAPTCHAはfinalizeの前に移動
       const { schema, kv } = buildSchemaAndKV();
       const { files, missing } = collectFilesForUpload();
 
@@ -1514,11 +1512,9 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("GAS Post failed, but redirecting anyway:", err);
       }
       
-      // 送信成否に関わらず、後処理とリダイレクトを実行
       localStorage.removeItem(S.storageKey);
-
+      
       if (S.conversionUrl) {
-        // [パッチ適用] location.hrefからlocation.replaceに変更
         location.replace(S.conversionUrl);
       } else {
         showSendingOverlay(false);
@@ -1536,10 +1532,10 @@ document.addEventListener('DOMContentLoaded', () => {
               save();
               finalize();
             })
-            .catch(() => finalize()); // reCAPTCHA失敗でも送信試行
+            .catch(() => finalize());
         });
       } catch (_) {
-        finalize(); // reCAPTCHAライブラリでエラーでも送信試行
+        finalize();
       }
     } else {
       finalize();
@@ -1756,7 +1752,7 @@ function setProp_(key, val){ PropertiesService.getScriptProperties().setProperty
 function getTpl_(key, fallback){ return getProp_(key, fallback); }
 
 function renderTpl_(tpl, ctx){
-  return String(tpl || '').replace(/(\\{\\{|\\[\\[)\\s*(.+?)\\s*(\\}\\}|\\]\\])/g, function(_, __, raw){
+  return String(tpl || '').replace(/(\\{\\{|\\[\\[)\\s*(.+?)\\s*(\\)\\}|\\]\\])/g, function(_, __, raw){
     const k = (TOKEN_ALIASES[raw] || raw).trim();
     return (ctx[k] ?? '');
   });
@@ -2054,8 +2050,8 @@ function buildAttachments_(files) {
 var LEGAL_LABELS_ = ['会社名','所在地','電話','代表者','お問い合わせ窓口','メール','営業時間','Web','個人情報保護方針'];
 function stripEmptyLegalLines_(text){
   // 「ラベル : 」で終わる行を削除（対象ラベル限定）
-  var esc = function(s){ return s.replace(/[-/\\^$*+?.()|[\\\]{}]/g,'\\\\$&'); };
-  var re = new RegExp('^\\\\s*(?:' + LEGAL_LABELS_.map(esc).join('|') + ')\\\\s*:\\\\s*$', 'u');
+  var esc = function(s){ return s.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&'); };
+  var re = new RegExp('^\\s*(?:' + LEGAL_LABELS_.map(esc).join('|') + ')\\s*:\\s*$', 'u');
   return String(text||'').split('\\n').filter(function(line){ return !re.test(line); }).join('\\n');
 }
 

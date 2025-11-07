@@ -1,3 +1,5 @@
+
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS, GAS_CODE_TEMPLATE, SIDEBAR_HTML_TEMPLATE } from './constants';
@@ -436,8 +438,9 @@ export default function App() {
                 privacy_policy_url: finalData.privacyPolicyUrl,
                 newsletter: { enabled: finalData.useNewsletter, label: finalData.newsletterText || 'ニュースレター/最新情報を受け取る' },
                 recaptcha_site_key: finalData.useRecaptcha ? finalData.recaptchaSiteKey : '',
-                gas_endpoint_url: finalData.gasUrl,
+                gas_endpoint_url: data.gasUrl,
                 confirm_message: finalData.bubbleTexts['確認画面'],
+                conversion_url: finalData.conversionUrl,
             },
             thanks_url_patterns_input: finalData.conversionUrl,
             fields: [] as any[]
@@ -477,9 +480,9 @@ export default function App() {
                     }
                     break;
                 }
-                case 16: cfg.fields.push({ id: 'custom_radio', type: 'radio', label: finalData.radioItems.title, choices: finalData.radioItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
-                case 17: cfg.fields.push({ id: 'custom_checkbox', type: 'checkbox', label: finalData.checkboxItems.title, choices: finalData.checkboxItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
-                case 18: cfg.fields.push({ id: 'custom_select', type: 'select', label: finalData.pulldownItems.title, choices: finalData.pulldownItems.options.split(/[\n,、]+/).map(s => s.trim()), required: isRequired, message }); break;
+                case 16: cfg.fields.push({ id: 'custom_radio', type: 'radio', label: finalData.radioItems.title, choices: finalData.radioItems.options.split(/[\n,、]+/).map(s => s.trim()).filter(Boolean), required: isRequired, message }); break;
+                case 17: cfg.fields.push({ id: 'custom_checkbox', type: 'checkbox', label: finalData.checkboxItems.title, choices: finalData.checkboxItems.options.split(/[\n,、]+/).map(s => s.trim()).filter(Boolean), required: isRequired, message }); break;
+                case 18: cfg.fields.push({ id: 'custom_select', type: 'select', label: finalData.pulldownItems.title, choices: finalData.pulldownItems.options.split(/[\n,、]+/).map(s => s.trim()).filter(Boolean), required: isRequired, message }); break;
             }
         });
         return cfg;
@@ -489,7 +492,15 @@ export default function App() {
         const generateFinalHtml = (cfg: any) => {
             let html = HTML_TEMPLATE;
             const cfgString = JSON.stringify(cfg, null, 2);
-            html = html.replace('<script>\\n// Will be replaced by the generator\\n</script>', `<script>window.CFG = ${cfgString};</script>`);
+            const scriptTag = `<script>\nwindow.CFG = ${cfgString};\n</script>`;
+            
+            // 正規表現を使用して、開始コメントと終了コメントの間を確実に置換します
+            const placeholderRegex = /(<!-- ▼▼▼ ここにAIが生成した window.CFG を貼り付けてください ▼▼▼ -->)[\s\S]*?(<!-- ▲▲▲ ここまで ▲▲▲ -->)/;
+
+            html = html.replace(
+                placeholderRegex,
+                `$1\n${scriptTag}\n$2`
+            );
             return html;
         };
         const cfgA = generateWindowCfg(formData, 'A');
@@ -642,8 +653,15 @@ export default function App() {
 {formData.abTestItem === 'フォームタイトル' && <div id="field-container-abTestTitleB" className="space-y-2"><SectionTitle>パターンBのフォームタイトル</SectionTitle><Input placeholder="新しいフォームタイトル" value={formData.abTestTitleB} onChange={e => handleChange('abTestTitleB', e.target.value)} /></div>}
 {formData.abTestItem === 'フォームサブタイトル' && <div id="field-container-abTestSubtitleB" className="space-y-2"><SectionTitle>パターンBのサブタイトル</SectionTitle><Textarea placeholder="新しいサブタイトル" value={formData.abTestSubtitleB} onChange={e => handleChange('abTestSubtitleB', e.target.value)} rows={3} /></div>}
 {formData.abTestItem === '送信ボタンの文言' && <div id="field-container-abTestSubmitButtonTextB" className="space-y-2"><SectionTitle>パターンBの送信ボタン文言</SectionTitle><Input placeholder="送信する" value={formData.abTestSubmitButtonTextB} onChange={e => handleChange('abTestSubmitButtonTextB', e.target.value)} /></div>}
-{formData.abTestItem === '質問の順番' && <div id="field-container-abTestItemOrderB" className="space-y-2"><SectionTitle>パターンBの質問順序</SectionTitle><div className="p-2 border rounded-lg min-h-[24rem] bg-white">{formData.abTestItemOrderB.length > 0 ? (<ReorderableList items={formData.abTestItemOrderB} onMove={(oldIndex, newIndex) => handleMoveItem('abTestItemOrderB', oldIndex, newIndex)} />) : (<div className="text-center text-gray-500 py-10">項目を選択してください</div>)}</div></div>}</div>}</div></Card>
-<div className="mt-8 text-center"><Button onClick={handleSubmit} className="w-full sm:w-auto text-lg py-4 px-8">HTMLを生成</Button></div>
-{toastText && <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm py-2 px-4 rounded-lg shadow-lg animate-fade-in-out">{toastText}</div>}
-</div></div>);
+{formData.abTestItem === '質問の順番' && <div id="field-container-abTestItemOrderB" className="space-y-2"><SectionTitle>パターンBの質問順序</SectionTitle><div className="p-2 border rounded-lg min-h-[24rem] bg-white">{formData.abTestItemOrderB.length > 0 ? (<ReorderableList items={formData.abTestItemOrderB} onMove={(oldIndex, newIndex) => handleMoveItem('abTestItemOrderB', oldIndex, newIndex)} />) : (<div className="text-center text-gray-500 py-10">項目を選択してください</div>)}</div></div>}
+</div>}</div></Card>
+                <div className="mt-8 text-center"><Button onClick={handleSubmit} className="w-full sm:w-auto text-lg font-bold py-4 px-8">HTMLを生成</Button></div>
+            </div>
+            {toastText && (
+                <div className="fixed bottom-5 right-5 bg-gray-900 text-white py-2 px-4 rounded-lg shadow-lg text-sm transition-opacity duration-300 opacity-100">
+                    {toastText}
+                </div>
+            )}
+        </div>
+    );
 }
