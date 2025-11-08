@@ -1,6 +1,12 @@
-
-
 import { FormItem } from './types';
+
+// =====================================================================
+// --- DO NOT MODIFY THE TEMPLATES BELOW ---
+// The user has requested these templates be treated as a "sanctuary".
+// Any changes to form logic or appearance should be made in App.tsx
+// or by modifying the data passed into the templates, not by editing
+// the template strings themselves.
+// =====================================================================
 
 export const SIDEBAR_HTML_TEMPLATE = `
 <!doctype html>
@@ -370,11 +376,11 @@ export const HTML_TEMPLATE = `
   /* ▼ トースト */
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#475569;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);opacity:0;pointer-events:none;transition:opacity .2s, transform .2s;z-index:60;transform:translateX(-50%) translateY(6px);}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  .toast.error { background: #dc2626; }   /* エラー時の背景色 (赤) */
+  .toast.error { background: #dc2626; }
 </style>
 
 <!-- ▼▼▼ ここにAIが生成した window.CFG を貼り付けてください ▼▼▼ -->
-
+{{WINDOW_CFG}}
 <!-- ▲▲▲ ここまで ▲▲▲ -->
 
 <script>
@@ -401,7 +407,7 @@ const formSettings = {
   formDescription: "{{FORM_SUBTITLE}}",
   storageKey: "generated-form-v1",
   ga4Id: "{{GA4_ID}}",
-  conversionUrl: "",
+  conversionUrl: "{{CONVERSION_URL}}",
   operator: { defaultIcon: "https://shungene.lm-c.jp/ef/opr.jpg" },
   recaptchaSiteKey: "{{RECAPTCHA_SITE_KEY}}",
   gasEndpointUrl: "{{GAS_ENDPOINT_URL}}",
@@ -427,8 +433,8 @@ const formSettings = {
       if(CFG.thanks_url_patterns_input) F.thanks_url_patterns_input = CFG.thanks_url_patterns_input;
       // ▼ オペレータ（吹き出しアイコン）設定を取り込み
       if (CFG.operator){
-        if (CFG.operator.default_icon) F.operator.defaultIcon = CFG.operator.default_icon;
-        if (CFG.operator.defaultIcon)  F.operator.defaultIcon = CFG.operator.defaultIcon;
+        if (CFG.operator.default_icon !== undefined) F.operator.defaultIcon = CFG.operator.default_icon;
+        if (CFG.operator.defaultIcon !== undefined)  F.operator.defaultIcon = CFG.operator.defaultIcon;
         if (CFG.operator.step_icons && typeof CFG.operator.step_icons === 'object'){
           F.operator.stepIcons = CFG.operator.step_icons;
         }
@@ -809,7 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   const toHalf = s => (s||"").replace(/[\\uFF01-\\uFF5E]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)).replace(/\\u3000/g,' ');
   const digits = s => toHalf(s).replace(/[^\\d]/g,'');
-  const emailOk=v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const emailOk=v=>/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(v);
   const markEmpty=el=>el.classList[((el.value||"")+"").trim()?"remove":"add"]("empty");
   const updateSelectEmpty = (el)=>{ el.classList[((el.value||"")+"").trim()?"remove":"add"]("empty"); };
   const stepsConf = S.steps;
@@ -1008,7 +1014,7 @@ document.addEventListener('DOMContentLoaded', () => {
       stepConf.icon ||
       (S.operator && S.operator.stepIcons && (S.operator.stepIcons[stepConf.id] || S.operator.stepIcons[stepConf.question])) ||
       (S.operator && S.operator.defaultIcon) || '';
-    const escHtml = (s) => String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\\'':'&#39;'}[m]));
+    const escHtml = (s) => String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     const bubbleSafe = escHtml(bubbleText);
     
     // [PATCH APPLIED] iconUrlがあるときだけ<img>を出力
@@ -1046,7 +1052,7 @@ document.addEventListener('DOMContentLoaded', () => {
         \${createLabel(conf.label, !!conf.required, conf.description)}
         <input id="\${id}" type="\${conf.inputType||'text'}" placeholder="\${conf.placeholder || defaultPlaceholderForType(conf.inputType||'text')}" class="empty" />
         <div class="err" id="err_\${id}">\${conf.label}を入力してください</div>
-        \${conf.inputType==='email' ? \`<div class="suggests" id="suggests_\${id}"></div>\` : \`\`}
+        \${conf.inputType==='email' ? \`<div class="suggests" id="suggests_\${id}"></div>\` : ''}
       </div>
     \`).join('')
   }</div>\`;
@@ -1459,7 +1465,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function buildConfirm() { 
     const items=[]; 
-    const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\\'':'&#39;' }[m]));
+    const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
     const pick = (id)=> state[id]??'';
     const pickOther = (id)=> { const v=pick(id); const vo=(state[id+"_other"]||'').trim(); if(Array.isArray(v)){ const arr=[...v]; if(v.includes('その他') && vo) arr.splice(arr.indexOf('その他'),1,\`その他: \${vo}\`); return arr.join(', '); } else { if(v==='その他' && vo) return \`その他: \${vo}\`; return v; } };
     for(const s of questionSteps){
@@ -1976,7 +1982,7 @@ function saveUploads_(files, acceptId){
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       const id=file.getId();
       const downloadUrl='https://drive.google.com/uc?export=download&id='+id;
-      const thumbUrl=/^image\\//i.test(mime) ? 'https://drive.google.com/thumbnail?id='+id+'&sz=w600' : '';
+      const thumbUrl=/^image\\/i.test(mime) ? 'https://drive.google.com/thumbnail?id='+id+'&sz=w600' : '';
       out.push({ id, name:file.getName(), mimeType:mime, size, url:downloadUrl, thumbUrl });
     }catch(e){
       console.error('Failed to process file '+ name +': '+ e.toString());
@@ -2050,8 +2056,8 @@ function buildAttachments_(files) {
 var LEGAL_LABELS_ = ['会社名','所在地','電話','代表者','お問い合わせ窓口','メール','営業時間','Web','個人情報保護方針'];
 function stripEmptyLegalLines_(text){
   // 「ラベル : 」で終わる行を削除（対象ラベル限定）
-  var esc = function(s){ return s.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&'); };
-  var re = new RegExp('^\\s*(?:' + LEGAL_LABELS_.map(esc).join('|') + ')\\s*:\\s*$', 'u');
+  var esc = function(s){ return s.replace(/[-/\\\\^$*+?.()|[\\]{}]/g,'\\\\$&'); };
+  var re = new RegExp('^\\\\s*(?:' + LEGAL_LABELS_.map(esc).join('|') + ')\\\\s*:\\\\s*$', 'u');
   return String(text||'').split('\\n').filter(function(line){ return !re.test(line); }).join('\\n');
 }
 
