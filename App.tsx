@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { FormData, FormItem, GroupedItem } from './types';
 import { FORM_ITEMS, HTML_TEMPLATE, ROUTER_HTML_TEMPLATE, AB_TEST_ITEMS, GAS_CODE_TEMPLATE, SIDEBAR_HTML_TEMPLATE } from './constants';
@@ -107,7 +108,7 @@ const groupFormItems = (selectedItems: FormItem[]): GroupedItem[] => {
 };
 
 // Helper to get the correct key for a step, matching the `question` property in the HTML template's logic.
-const getStepKey = (item: GroupedItem): string => {
+const getStepKey = (item: GroupedItem, formData: FormData): string => {
     const isArray = Array.isArray(item);
     const firstItem = isArray ? (item as FormItem[])[0] : (item as FormItem);
     const ids = isArray ? new Set((item as FormItem[]).map(i => i.id)) : new Set([firstItem.id]);
@@ -117,14 +118,19 @@ const getStepKey = (item: GroupedItem): string => {
     if (!isArray && ids.has(1)) return 'お名前（フルネーム）';
     if (!isArray && ids.has(2)) return 'ふりがな';
 
-    // Company Items are always grouped in an array by groupFormItems.
+    // Company Items
     if ([3, 4, 5, 6].some(id => ids.has(id))) {
-        return isArray && (item as FormItem[]).length > 1 ? '会社情報' : firstItem.name;
+        const companyItemIds = new Set([3, 4, 5, 6]);
+        const selectedCompanyItemsCount = formData.selectedItems.filter(i => companyItemIds.has(i.id)).length;
+        if (selectedCompanyItemsCount >= 2) {
+            return '会社情報';
+        }
+        return firstItem.name;
     }
 
     // Birth/Gender. Birth is primary.
     if (ids.has(8)) return '生年月日';
-    if (!isArray && ids.has(9)) return '性別'; // Only for gender-only item
+    if (!isArray && ids.has(9)) return '性別';
 
     // Contact
     if (ids.has(10) && ids.has(11)) return 'ご連絡先';
@@ -133,13 +139,21 @@ const getStepKey = (item: GroupedItem): string => {
 
     // Inquiry/File. Inquiry is primary.
     if (ids.has(13)) return 'お問い合わせ内容（自由記入欄）';
-    if (!isArray && ids.has(14)) return '画像添付'; // For file-only item.
+    if (!isArray && ids.has(14)) return FORM_ITEMS.find(i => i.id === 14)?.name || '画像添付';
 
-    // Fallback for custom items etc.
-    if (!isArray) return (item as FormItem).name;
-    if (isArray && item.length === 1) return firstItem.name;
-    return (item as FormItem[]).map(i => i.name).join('・');
+    // Custom items etc.
+    const finalItem = firstItem;
+    switch (finalItem.id) {
+        case 15: return formData.customItem.label.trim() || finalItem.name;
+        case 16: return formData.radioItems.title.trim() || finalItem.name;
+        case 17: return formData.checkboxItems.title.trim() || finalItem.name;
+        case 18: return formData.pulldownItems.title.trim() || finalItem.name;
+    }
+
+    // Fallback for other items
+    return firstItem.name;
 };
+
 
 // --- Helper Components ---
 
@@ -472,7 +486,7 @@ export default function App() {
             const isRequired = !optionalIds.has(item.id);
             const dummyGrouped = groupFormItems(itemOrder);
             const dummyItem = dummyGrouped.find(g => (Array.isArray(g) ? g : [g]).some(i => i.id === item.id));
-            const message = dummyItem ? finalData.bubbleTexts[getStepKey(dummyItem)] : undefined;
+            const message = dummyItem ? finalData.bubbleTexts[getStepKey(dummyItem, data)] : undefined;
             const commonProps = { label: item.name, required: isRequired, message: message };
 
             switch(item.id) {
@@ -664,8 +678,8 @@ export default function App() {
                     </div>
                 </Card>
                 <Card><Title>3. 表示オプションと連携設定</Title><div className="space-y-6">
-<div className="p-4 border rounded-lg bg-gray-100 space-y-4"><SectionTitle>吹き出し用の画像</SectionTitle><div><label className="text-sm font-medium text-gray-600">共通アバター画像URL</label><Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} /></div><div className="mt-4"><label className="text-sm font-medium text-gray-600">項目別アバター画像URL</label><p className="text-xs text-gray-500 mb-2">共通アバターを変更するページのみ記入してください</p><div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">{groupedItems.map((item, index) => { const stepKey = getStepKey(item); const specificUrl = formData.avatarImages.specific.find(s => s.itemName === stepKey)?.url || ''; return (<div key={index}><label className="text-xs text-gray-500 block mb-1">{stepKey}</label><Input placeholder={`「${stepKey}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(stepKey, e.target.value)} /></div>)})}{(() => { const stepKey = '確認画面'; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === stepKey)?.url || ''; return (<div><label className="text-xs text-gray-500 block mb-1">{stepKey}</label><Input placeholder={`「${stepKey}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(stepKey, e.target.value)} /></div>)})()}</div></div></div>
-<div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>吹き出し用のセリフ</SectionTitle><p className="text-xs text-gray-500 mb-3">無記入の場合は、各項目のタイトルがセリフとして表示されます。</p><div className="space-y-4 max-h-96 overflow-y-auto">{groupedItems.map((item, index) => { const stepKey = getStepKey(item); return (<div key={index}><label className="text-sm font-medium text-gray-600">{stepKey}</label><Input placeholder={`「${stepKey}」のセリフ`} value={formData.bubbleTexts[stepKey] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, [stepKey]: e.target.value})} /></div>)})}{<div><label className="text-sm font-medium text-gray-600">確認画面</label><Input placeholder="確認画面のセリフ" value={formData.bubbleTexts['確認画面'] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, '確認画面': e.target.value})} /></div>}</div></div>
+<div className="p-4 border rounded-lg bg-gray-100 space-y-4"><SectionTitle>吹き出し用の画像</SectionTitle><div><label className="text-sm font-medium text-gray-600">共通アバター画像URL</label><Input placeholder="https://example.com/default-avatar.png" value={formData.avatarImages.common} onChange={e => handleAvatarChange('common', e.target.value)} /></div><div className="mt-4"><label className="text-sm font-medium text-gray-600">項目別アバター画像URL</label><p className="text-xs text-gray-500 mb-2">共通アバターを変更するページのみ記入してください</p><div className="space-y-3 mt-2 max-h-80 overflow-y-auto p-2 border rounded-lg bg-white">{groupedItems.map((item, index) => { const stepKey = getStepKey(item, formData); const specificUrl = formData.avatarImages.specific.find(s => s.itemName === stepKey)?.url || ''; return (<div key={index}><label className="text-xs text-gray-500 block mb-1">{stepKey}</label><Input placeholder={`「${stepKey}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(stepKey, e.target.value)} /></div>)})}{(() => { const stepKey = '確認画面'; const specificUrl = formData.avatarImages.specific.find(s => s.itemName === stepKey)?.url || ''; return (<div><label className="text-xs text-gray-500 block mb-1">{stepKey}</label><Input placeholder={`「${stepKey}」用のアバターURL`} value={specificUrl} onChange={e => handleAvatarChange(stepKey, e.target.value)} /></div>)})()}</div></div></div>
+<div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>吹き出し用のセリフ</SectionTitle><p className="text-xs text-gray-500 mb-3">無記入の場合は、各項目のタイトルがセリフとして表示されます。</p><div className="space-y-4 max-h-96 overflow-y-auto">{groupedItems.map((item, index) => { const stepKey = getStepKey(item, formData); return (<div key={index}><label className="text-sm font-medium text-gray-600">{stepKey}</label><Input placeholder={`「${stepKey}」のセリフ`} value={formData.bubbleTexts[stepKey] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, [stepKey]: e.target.value})} /></div>)})}{<div><label className="text-sm font-medium text-gray-600">確認画面</label><Input placeholder="確認画面のセリフ" value={formData.bubbleTexts['確認画面'] || ''} onChange={e => handleChange('bubbleTexts', {...formData.bubbleTexts, '確認画面': e.target.value})} /></div>}</div></div>
 <div id="field-container-submitButtonText" className="p-4 border rounded-lg bg-gray-100"><SectionTitle>送信ボタンの文言</SectionTitle><Input placeholder="送信" value={formData.submitButtonText} onChange={e => handleChange('submitButtonText', e.target.value)} /></div>
 <div id="field-container-privacyPolicyUrl" className="p-4 border rounded-lg bg-gray-100"><SectionTitle required>個人情報の取り扱いリンクURL</SectionTitle><Input type="url" placeholder="https://example.com/privacy" value={formData.privacyPolicyUrl} onChange={e => handleChange('privacyPolicyUrl', e.target.value)} /><ErrorMessage message={errors.privacyPolicyUrl} /></div>
 <div className="p-4 border rounded-lg bg-gray-100"><SectionTitle>ニュースレター購読チェックボックス</SectionTitle><div className="flex items-center space-x-4"><label className="flex items-center"><input type="radio" name="useNewsletter" checked={!formData.useNewsletter} onChange={() => handleChange('useNewsletter', false)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">不要</span></label><label className="flex items-center"><input type="radio" name="useNewsletter" checked={formData.useNewsletter} onChange={() => handleChange('useNewsletter', true)} className="h-4 w-4 border-gray-300 text-teal-600 focus:ring-teal-500" /><span className="ml-2 text-sm">必要</span></label></div>{formData.useNewsletter && <Input className="mt-4" placeholder="ニュースレター/最新情報を受け取る" value={formData.newsletterText} onChange={e => handleChange('newsletterText', e.target.value)} />}</div>
@@ -727,3 +741,248 @@ export default function App() {
         </div>
     );
 }
+
+// ▼▼▼ 既存の submitNow 関数と、このブロックを丸ごと入れ替える ▼▼▼
+  
+  async function submitNow() {
+    const btn = document.getElementById('submitBtn') as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
+    
+// FIX: Declare formSettings for TypeScript since this function is out of component scope.
+    declare const formSettings: any;
+    const S = formSettings;
+    const $ = (s: string) => document.querySelector(s);
+    const state = JSON.parse(localStorage.getItem(S.storageKey) || "{}");
+    
+    // Helper functions from the original script context
+    const showSendingOverlay = (on: boolean, text?: string) => {
+        const ov = document.getElementById('sendingOverlay');
+        if (!ov) return;
+        if (text) {
+            const h = ov.querySelector('.hd strong');
+            if (h) h.textContent = text;
+        }
+        ov.classList[on ? 'add' : 'remove']('show');
+    };
+    
+    const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+        const t = document.getElementById('toast');
+        if (!t) return;
+        t.textContent = msg;
+        t.className = `toast show ${type}`;
+        setTimeout(() => {
+            t.className = 'toast';
+        }, 2400);
+    };
+
+    const buildSchemaAndKV = () => {
+        const schema: string[] = [];
+        const kv: { [key: string]: string } = {};
+        const push = (label: string, val: any) => {
+            if (!schema.includes(label)) schema.push(label);
+            kv[label] = (val ?? '');
+        };
+    
+        const pick = (id: string) => state[id] ?? '';
+        const pickOther = (id: string) => {
+            const v = pick(id);
+            const vo = (state[id + "_other"] || '').trim();
+            if (Array.isArray(v)) {
+                const arr = [...v];
+                const otherIndex = arr.indexOf('その他');
+                if (otherIndex !== -1 && vo) {
+                    arr.splice(otherIndex, 1, `その他: ${vo}`);
+                }
+                return arr.join(', ');
+            } else {
+                return (v === 'その他' && vo) ? `その他: ${vo}` : v;
+            }
+        };
+    
+        for (const s of S.steps.filter((ss: any) => ss.type !== 'confirm')) {
+            switch (s.type) {
+                case 'group': {
+                    for (const [fid, conf] of Object.entries(s.fields as any)) {
+// FIX: Cast conf to any to access property 'label'
+                        const label = (conf as any).label || fid;
+                        push(label, pick(fid));
+                    }
+                    break;
+                }
+                case 'birth': {
+                    const label = s.question || '生年月日';
+                    const y = state[s.id + '_y'] || '',
+                          m = state[s.id + '_m'] || '',
+                          d = state[s.id + '_d'] || '';
+                    push(label, (y && m && d) ? `${y}-${('0' + m).slice(-2)}-${('0' + d).slice(-2)}` : '');
+                    if (s.gender) push('性別', state['gender'] || '');
+                    break;
+                }
+                case 'address': {
+                    push('郵便番号', pick(`${s.id}_zip`));
+                    push('都道府県', pick(`${s.id}_pref`));
+                    push('市区町村', pick(`${s.id}_city`));
+                    push('番地・建物名', pick(`${s.id}_line`));
+                    break;
+                }
+                case 'checkbox':
+                case 'radio':
+                case 'select':
+                case 'textarea': {
+                    const label = s.question || s.id;
+                    push(label, pickOther(s.id));
+                    if (s.fileUpload) {
+                        const fuLabel = s.fileUpload.question || '画像添付';
+                        const names = (state[s.fileUpload.id] || []).map((f: any) => f.name).join(', ');
+                        push(fuLabel, names);
+                    }
+                    break;
+                }
+                case 'file_upload': {
+                    const label = s.question || '画像添付';
+                    push(label, (state[s.id] || []).map((f: any) => f.name).join(', '));
+                    break;
+                }
+                default: {
+                    const label = s.question || s.id;
+                    push(label, pickOther(s.id));
+                }
+            }
+        }
+        
+        const confirmStep = S.steps.find((s: any) => s.id === 'confirm');
+        if (confirmStep?.newsletter?.enabled) {
+            push('ニュースレター', state.subscribe ? 'ON' : 'OFF');
+        }
+    
+        return { schema, kv };
+    };
+    
+    const collectFilesForUpload = () => {
+        const ids: string[] = [];
+        S.steps.forEach((s: any) => {
+            if (s.type === 'file_upload') ids.push(s.id);
+            if (s.type === 'textarea' && s.fileUpload) ids.push(s.fileUpload.id);
+        });
+    
+        const files: { name: string; size: number; type: string; data: string }[] = [];
+        const missing: { id: string; name: string }[] = [];
+    
+        ids.forEach(id => {
+            const arr = Array.isArray(state[id]) ? state[id] : [];
+            arr.forEach(f => {
+                if (f && f.data) {
+                    files.push({ name: f.name, size: f.size || 0, type: f.type || '', data: f.data });
+                } else {
+                    missing.push({ id, name: f?.name || '' });
+                }
+            });
+        });
+        return { files, missing };
+    };
+    
+    const showStep = (index: number) => {
+         // This is a placeholder as we can't fully replicate the outer scope's showStep
+         console.log("Navigating to step", index);
+    };
+
+
+    showSendingOverlay(true, '送信中です...');
+
+    try {
+      // --- 1. reCAPTCHAの実行（共通） ---
+// FIX: Cast window to any to access grecaptcha property and avoid TypeScript errors.
+      if ((window as any).grecaptcha && S.recaptchaSiteKey && S.recaptchaSiteKey !== 'YOUR_RECAPTCHA_SITE_KEY') {
+        try {
+// FIX: Use (window as any).grecaptcha to avoid 'grecaptcha is not defined' error.
+          const token = await (window as any).grecaptcha.execute(S.recaptchaSiteKey, { action: 'submit' });
+          state.recaptchaToken = token;
+          // save(); // state is not available here, but payload will use it.
+        } catch (e) {
+          console.warn('reCAPTCHA execute failed:', e);
+          // reCAPTCHAが失敗しても送信は続行する
+        }
+      }
+
+      // --- 2. ペイロードの構築（共通） ---
+      const { schema, kv } = buildSchemaAndKV();
+      const { files, missing } = collectFilesForUpload();
+
+      // （再開時の）ファイルデータ欠落チェック
+      if (missing.length > 0) {
+        showSendingOverlay(false);
+        if (btn) btn.disabled = false;
+        const firstMissingId = missing[0].id;
+        const idx = S.steps.findIndex((s: any) => (s.type === 'file_upload' && s.id === firstMissingId) || (s.type === 'textarea' && s.fileUpload && s.fileUpload.id === firstMissingId));
+        if (idx >= 0) showStep(idx);
+        showToast('添付ファイルは再開後に再選択が必要です。該当項目でファイルを選び直してください。', 'error');
+        return;
+      }
+
+      const payload = {
+        formTitle: S.formTitle,
+        schema, kv, files,
+        ts: new Date().toISOString(),
+        recaptchaToken: state.recaptchaToken || '',
+        ua: navigator.userAgent || ''
+      };
+      
+      const url = (S.gasEndpointUrl || "").trim();
+      if (!url || /^{{GAS_ENDPOINT_URL}}$/.test(url)) {
+        throw new Error('GAS_ENDPOINT_URL is not set.');
+      }
+
+      // --- 3. 【ハイブリッド分岐】 ---
+      if (files.length > 0) {
+        // --- (A) 画像あり：'fetch'で確実に送信 ---
+        // 完了まで待つため少し時間がかかるが、大容量でも送れる
+        await fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          cache: 'no-cache',
+          headers: {
+            'Content-Type': 'text/plain;charset=UTF-8'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        // 完了を待ってから実行
+        localStorage.removeItem(S.storageKey);
+        if (S.conversionUrl) {
+          location.replace(S.conversionUrl); // 即時リダイレクト
+        } else {
+          showSendingOverlay(false);
+          showToast('送信が完了しました', 'success');
+          if (btn) btn.disabled = false;
+        }
+
+      } else {
+        // --- (B) 画像なし：'sendBeacon'で高速送信 ---
+        // 64KBの上限に収まるので、待たずに即時送信
+        const blob = new Blob([JSON.stringify(payload)], { type: 'text/plain;charset=UTF-8' });
+        if (!navigator.sendBeacon(url, blob)) {
+           // sendBeaconが（万が一）失敗した場合のフォールバック
+           await fetch(url, { method: 'POST', mode: 'no-cors', cache: 'no-cache', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(payload), keepalive: true });
+        }
+
+        // sendBeaconは完了を待たないので、リダイレクトを少し遅らせる
+        localStorage.removeItem(S.storageKey);
+        if (S.conversionUrl) {
+          setTimeout(() => location.replace(S.conversionUrl), 100); // 0.1秒待機
+        } else {
+          showSendingOverlay(false);
+          showToast('送信が完了しました', 'success');
+          if (btn) btn.disabled = false;
+        }
+      }
+
+    } catch (err) {
+      // --- 4. 共通エラーハンドリング ---
+      console.error('Submit failed:', err);
+      showSendingOverlay(false);
+      showToast('送信に失敗しました。時間をおいて再試行してください。', 'error');
+      if (btn) btn.disabled = false;
+    }
+  }
+  
+// ▲▲▲ ここまでを入れ替える ▲▲▲

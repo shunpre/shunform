@@ -1,3 +1,4 @@
+
 import { FormItem } from './types';
 
 // =====================================================================
@@ -979,21 +980,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return { files, missing };
   }
 
-  // ▼ GAS へPOST
-  async function postToGAS(payload){
-    const url = (S.gasEndpointUrl || "").trim();
-    // テンプレ（{{GAS_ENDPOINT_URL}}）や未設定時はスキップ（デモ時エラー回避）
-    if (!url || /^\\{\\{GAS_ENDPOINT_URL\\}\\}$/.test(url)) return { ok:true };
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8" },
-      body: new URLSearchParams({ payload: JSON.stringify(payload) })
-    });
-    let json = {};
-    try{ json = await res.json(); }catch(_){ }
-    return (json && json.ok) ? { ok:true } : { ok:false, error: json.error || ("HTTP "+res.status) };
-  }
-
   function createStepHTML(stepConf, isFirst, isLast) {
     let contentHTML = '';
     switch (stepConf.type) {
@@ -1488,9 +1474,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function submitNow() {
     const btn = $('#submitBtn');
     btn.disabled = true;
-    showSendingOverlay(true, '送信中です...');
+    showSendingOverlay(true, '処理中です...');
 
-    const finalize = async () => {
+    const finalize = () => { // Not async anymore
       const { schema, kv } = buildSchemaAndKV();
       const { files, missing } = collectFilesForUpload();
 
@@ -1511,17 +1497,23 @@ document.addEventListener('DOMContentLoaded', () => {
         recaptchaToken: state.recaptchaToken || '',
         ua: navigator.userAgent || ''
       };
-
-      try {
-        await postToGAS(payload);
-      } catch (err) {
-        console.error("GAS Post failed, but redirecting anyway:", err);
-      }
       
+      const url = (S.gasEndpointUrl || "").trim();
+      if (url && !/^\\{\\{GAS_ENDPOINT_URL\\}\\}$/.test(url) && navigator.sendBeacon) {
+        try {
+          // sendBeacon requires the data to be in a specific format (Blob, BufferSource, or FormData)
+          const blob = new Blob([JSON.stringify(payload)], { type: 'text/plain;charset=UTF-8' });
+          navigator.sendBeacon(url, blob);
+        } catch (e) {
+          // Fallback or error logging if needed, but sendBeacon is very reliable.
+          console.error('sendBeacon failed:', e);
+        }
+      }
+
       localStorage.removeItem(S.storageKey);
       
       if (S.conversionUrl) {
-        location.replace(S.conversionUrl);
+        setTimeout(() => location.replace(S.conversionUrl), 100);
       } else {
         showSendingOverlay(false);
         showToast('送信が完了しました', 'success');
@@ -1692,32 +1684,36 @@ export const AB_TEST_ITEMS = [
 export const GAS_CODE_TEMPLATE = `
 /** =====================================================================
 * フォーム受付 完全版（Webアプリ）- カスタムメール & ガイド作成機能付き
-* - 初心者向け改善パッチ Ver.4.1 (最終修正版)
-* - 追加修正: 添付リンク（スプシのみ）/ メールはサムネのみ / 重複添付防止 / 先頭0維持 / 共有＝固定anyone
+* - Ver 4.5 送信安定化 + 詳細ガイド版（2025/11/09）
+* - [CRITICAL FIX] プレースホルダ展開の正規表現 終端タイポ修正
+* - [STABILITY] 宛先文字列を正規化（全角/不可視スペース/全角区切りの除去）
+* - [ROBUST] 複数宛先は 1件ずつ送信（1件の不正で全落ち防止）
+* - [UPDATE] 使い方ガイドをVer 4.1由来の詳細版に戻す
+* - [KEEP] 4.3/4.1 由来の安定ロジック・高速化は維持
 * ===================================================================== */
 
-/* ========================= デフォルト・テンプレ ========================= */
+/* ========================= デフォルト・テンプレ (Ver 4.1ベース + 修正) ========================= */
 const DEFAULT_AUTO_REPLY_SUBJECT = 'お問い合わせを受け付けました（受付ID: {{ID}}）';
 const DEFAULT_AUTO_REPLY_BODY = [
   '{{NAME}} 様','',
   'このたびは「{{FORM}}」よりお問い合わせありがとうございます。',
   '以下の内容で受け付けいたしました。担当〇〇より、◯営業日以内に折り返しご連絡いたします。','',
-  '受付ID  : {{ID}}',
+  '受付ID : {{ID}}',
   '受付日時 : {{DATETIME}}',
   'フォーム : {{FORM}}','',
   '―― ご入力内容 ――',
   '{{INPUTS_TEXT}}','',
   '―― お急ぎのお客様へ ――',
   '・お急ぎの場合は{{LEGAL_TEL}}までお電話ください。','',
-  '―― 発信者情報――',
-  '会社名  : {{LEGAL_COMPANY}}',
-  '所在地  : {{LEGAL_ADDRESS}}',
-  '電話    : {{LEGAL_TEL}}',
-  '代表者  : {{LEGAL_REP}}',
+  '―― 発信者情報（リーガル表記）――',
+  '会社名 : {{LEGAL_COMPANY}}',
+  '所在地 : {{LEGAL_ADDRESS}}',
+  '電話 : {{LEGAL_TEL}}',
+  '代表者 : {{LEGAL_REP}}',
   'お問い合わせ窓口: {{LEGAL_CONTACT}}',
-  'メール  : {{LEGAL_EMAIL}}',
+  'メール : {{LEGAL_EMAIL}}',
   '営業時間 : {{LEGAL_HOURS}}',
-  'Web     : {{LEGAL_WEB}}',
+  'Web : {{LEGAL_WEB}}',
   '個人情報保護方針: {{LEGAL_PRIVACY_URL}}','',
   '※本メールは送信専用です。ご返信の際は {{LEGAL_EMAIL}} 宛にお願いいたします。',
   '――――――――――――――――――――',
@@ -1728,17 +1724,21 @@ const DEFAULT_AUTO_REPLY_BODY = [
 const DEFAULT_NOTIFY_SUBJECT = '【新規問い合わせ】{{ID}} / {{NAME}} / {{FORM}}';
 const DEFAULT_NOTIFY_BODY = [
   '▼メタ情報',
-  '受付ID  : {{ID}}',
+  '受付ID : {{ID}}',
   '受付日時 : {{DATETIME}}',
   'フォーム : {{FORM}}',
   '受信経路 : Webフォーム',
   'Reply-To : {{EMAIL}}',
-  'UA      : {{USER_AGENT}}','',
+  'UA : {{USER_AGENT}}','',
   '▼入力内容',
   '{{INPUTS_TEXT}}','',
   '▼対応メモ',
   '・1～2営業日以内に一次返信。',
-  '・見積りのため要ヒアリング：現行ページ数、CMS有無、素材有無、納期。'
+  '・見積りのため要ヒアリング：現行ページ数、CMS有無、素材有無、納期。','',
+  '―― フッター（自動挿入）――',
+  '会社名 : {{LEGAL_COMPANY}} / {{LEGAL_WEB}}',
+  '連絡先 : {{LEGAL_TEL}} / {{LEGAL_EMAIL}}',
+  '個人情報保護方針: {{LEGAL_PRIVACY_URL}}'
 ].join('\\n');
 
 /* ============================== 基本ユーティリティ ============================== */
@@ -1757,8 +1757,9 @@ function getProp_(key, def=''){ return PropertiesService.getScriptProperties().g
 function setProp_(key, val){ PropertiesService.getScriptProperties().setProperty(key, val); }
 function getTpl_(key, fallback){ return getProp_(key, fallback); }
 
+// Ver 4.1 の正常動作する renderTpl_
 function renderTpl_(tpl, ctx){
-  return String(tpl || '').replace(/(\\{\\{|\\[\\[)\\s*(.+?)\\s*(\\)\\}|\\]\\])/g, function(_, __, raw){
+  return String(tpl || '').replace(/(\\{\\{|\\[\\[)\\s*(.+?)\\s*(\\}\\}|\\]\\])/g, function(_, __, raw){
     const k = (TOKEN_ALIASES[raw] || raw).trim();
     return (ctx[k] ?? '');
   });
@@ -1801,7 +1802,6 @@ function getSheet_(){
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
   }
-  // A1 に常に一文だけ（データは2行目から）
   const cellA1 = sheet.getRange('A1').getValue();
   const banner = 'ここにフォームからの回答が記録されていきます。';
   if (cellA1 !== banner) {
@@ -1810,19 +1810,14 @@ function getSheet_(){
   return sheet;
 }
 
-/* =========== 電話列テキスト書式（0落ち防止サポート。ヘッダ無しでもOK） =========== */
 function ensurePhoneColumnAsText_(_sheet){
-  // ヘッダ無し運用のため、列幅固定はせず、値側で '\\'' を付与して完全防止する方針
-  // 互換のため残置（何もしない）
+  // 互換のため残置
 }
 
-/* ============================== 列定義（ヘッダは書かない） ============================== */
+/* ============================== 列定義 ============================== */
 function expectedHeaders_(schema){
-  // ★ヘッダー固定方針：既存の2行目ヘッダーを基準にし、新項目は末尾（添付の直前）にだけ追加
   const base=['通番','受付ID','受付日時','フォーム'];
   const extra='添付ファイルURL';
-
-  // 既存ヘッダー取得（なければ空配列）
   let existing=[];
   try{
     const ss=SpreadsheetApp.getActiveSpreadsheet();
@@ -1831,62 +1826,43 @@ function expectedHeaders_(schema){
       const lc=sh.getLastColumn();
       if (lc>=1){
         existing=(sh.getRange(2,1,1,lc).getValues()[0]||[]).map(function(v){ return String(v||''); });
-        // 末尾の空セルは削ぎ落す
         while(existing.length && !existing[existing.length-1]) existing.pop();
       }
     }
   }catch(_) {}
-
-  // 既存が無い場合は初期ヘッダー＝ base + schema + extra
   if (!existing.length){
     const uniqSchema=(schema||[]).filter(function(h,i,a){ return a.indexOf(h)===i; });
     return base.concat(uniqSchema||[]).concat([extra]);
   }
-
-  // 既存をベースに固定しつつ、baseが無ければ所定位置に補完
   let headers=existing.slice(0);
-
-  // base の順序を保証（無ければ先頭側へ挿入、既存順は極力維持）
   base.forEach(function(b, idx){
     if (headers.indexOf(b)===-1){
       headers.splice(Math.min(idx, headers.length), 0, b);
     }
   });
-
-  // 重複除去（先勝ち）
   headers = headers.filter(function(h, i, a){ return h && a.indexOf(h)===i; });
-
-  // 添付列の位置を記録（無ければあとで末尾に追加）
   let extraIdx = headers.indexOf(extra);
   if (extraIdx === -1){
     headers.push(extra);
     extraIdx = headers.length - 1;
   }
-
-  // schema の新規項目は「添付ファイルURL」の直前にだけ追加
   (schema||[]).forEach(function(h){
     if (!h) return;
     if (headers.indexOf(h)===-1 && base.indexOf(h)===-1 && h!==extra){
       headers.splice(extraIdx, 0, h);
-      extraIdx++; // 追加した分だけ添付の位置を後ろにスライド
+      extraIdx++;
     }
   });
-
   return headers;
 }
 
-/* === 1行分の値を配列化（ヘッダ無しのため値だけ書く）。電話は'を付与 === */
 function buildRow_(headers, formTitle, acceptId, when, schema, kv, attachments, rowNumber){
   const map = Object.assign({}, kv);
-  map['通番']   = rowNumber;
+  map['通番'] = rowNumber;
   map['受付ID'] = acceptId;
   map['受付日時'] = Utilities.formatDate(when, tz_(), 'yyyy/MM/dd HH:mm');
   map['フォーム'] = formTitle;
-
-  // スプシにはプレーンURL文字列を改行で（後でRichTextリンク付与）
   map['添付ファイルURL'] = (attachments||[]).map(function(f){ return f.url; }).join('\\n');
-
-  // 電話系は必ず文字列化し、先頭に '\\'' を付けて完全固定
   headers.forEach(function(h){
     if (/電話/.test(h)) {
       if (kv[h] != null && kv[h] !== '') {
@@ -1894,20 +1870,15 @@ function buildRow_(headers, formTitle, acceptId, when, schema, kv, attachments, 
       }
     }
   });
-
   return headers.map(function(h){ return (map.hasOwnProperty(h) ? map[h] : ''); });
 }
 
-/* === 書き込んだ行の「添付ファイルURL」セルにハイパーリンクを付ける === */
 function setAttachmentLinksCell_(sheet, headers, rowIndex, files){
   if (!Array.isArray(files) || files.length === 0) return;
   const col = headers.indexOf('添付ファイルURL') + 1;
   if (col < 1) return;
-
-  // 表示文字列はURLそのものを改行区切りで
   const parts = files.map(function(f){ return f.url; });
-  const text  = parts.join('\\n');
-
+  const text = parts.join('\\n');
   const builder = SpreadsheetApp.newRichTextValue().setText(text);
   let pos = 0;
   for (var i=0; i<parts.length; i++){
@@ -1917,18 +1888,15 @@ function setAttachmentLinksCell_(sheet, headers, rowIndex, files){
       builder.setLinkUrl(pos, pos + len, url);
     }
     pos += len;
-    if (i < parts.length - 1) pos += 1; // 改行分
+    if (i < parts.length - 1) pos += 1;
   }
   const cell = sheet.getRange(rowIndex, col);
   cell.setRichTextValue(builder.build());
 }
 
-/* === A1 タイトル装飾＆2行目の項目名行を表示・装飾（★今回の追加） === */
 function ensureBannerAndHeaders_(sheet, headers){
   if (!headers || !headers.length) return;
   const cols = headers.length;
-
-  // A1: タイトル化（結合＋背景色＋太字＋中央）
   const titleRange = sheet.getRange(1, 1, 1, cols);
   if (titleRange.isPartOfMerge()) titleRange.breakApart();
   titleRange.merge();
@@ -1938,11 +1906,8 @@ function ensureBannerAndHeaders_(sheet, headers){
             .setFontSize(12)
             .setHorizontalAlignment('center')
             .setVerticalAlignment('middle');
-
-  // 2行目: 項目名を表示（装飾）
   const hRange = sheet.getRange(2, 1, 1, cols);
   const current = hRange.getValues()[0] || [];
-  // すでに同じなら上書きしないが、欠けがあれば補完
   let needWrite = false;
   for (var i=0;i<cols;i++){ if (current[i] !== headers[i]) { needWrite = true; break; } }
   if (needWrite){
@@ -1951,22 +1916,17 @@ function ensureBannerAndHeaders_(sheet, headers){
   hRange.setFontWeight('bold')
         .setBackground('#f2f2f2')
         .setHorizontalAlignment('center');
-
-  // 体裁（任意）：行の高さ少し広め
   sheet.setRowHeight(1, 28);
   sheet.setRowHeight(2, 24);
 }
 
-/* ============================== Drive 保存（共有＝anyone固定・サムネ対応） ============================== */
+/* ============================== Drive 保存 ============================== */
 function saveUploads_(files, acceptId){
-  // ★添付が無い場合は何も作らない（親/子フォルダも未作成）
   if(!Array.isArray(files) || !files.length) return [];
-
   let folderId=getProp_('UPLOAD_FOLDER_ID',''); let folder;
   if (folderId){ try{ folder=DriveApp.getFolderById(folderId); }catch(e){ folder=null; } }
   if (!folder){ folder=DriveApp.createFolder('Form Uploads'); setProp_('UPLOAD_FOLDER_ID', folder.getId()); }
   const sub=folder.createFolder(acceptId);
-
   const out=[];
   files.forEach(function(f){
     const dataUrl=f && f.data || '';
@@ -1982,7 +1942,7 @@ function saveUploads_(files, acceptId){
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       const id=file.getId();
       const downloadUrl='https://drive.google.com/uc?export=download&id='+id;
-      const thumbUrl=/^image\\/i.test(mime) ? 'https://drive.google.com/thumbnail?id='+id+'&sz=w600' : '';
+      const thumbUrl=/^image\\//i.test(mime) ? 'https://drive.google.com/thumbnail?id='+id+'&sz=w600' : '';
       out.push({ id, name:file.getName(), mimeType:mime, size, url:downloadUrl, thumbUrl });
     }catch(e){
       console.error('Failed to process file '+ name +': '+ e.toString());
@@ -1996,19 +1956,14 @@ function escapeHtml_(s){
   });
 }
 
-/* ===== メール内の添付セクション：リンク不要（キャプチャのみ） ===== */
 function buildAttachmentSections_(files){
   if(!Array.isArray(files) || !files.length) return { text:'', html:'' };
-
-  // テキスト版：ファイル名＋サイズのみ（URLは載せない）
   var lines = files.map(function(f,i){
     return '・' + (i+1) + '. ' + (f.name || 'file') + '（' + formatBytes_(f.size || 0) + '）';
   });
   var text = '\\n\\n---\\n【添付ファイル】\\n' + lines.join('\\n');
-
-  // HTML版：画像はサムネイル<img>だけ、その他はファイル名のみ。リンクは張らない
   var htmlParts = files.map(function(f){
-    var safeName  = escapeHtml_(f.name || '');
+    var safeName = escapeHtml_(f.name || '');
     var safeThumb = escapeHtml_(f.thumbUrl || '');
     if (f.thumbUrl) {
       return '' +
@@ -2025,11 +1980,9 @@ function buildAttachmentSections_(files){
     '<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">' +
     '<p style="font-weight:700;margin:0 0 8px;">添付ファイル</p>' +
     '<div>' + htmlParts + '</div>';
-
   return { text: text, html: html };
 }
 
-/* ============================== メール添付（重複除去） ============================== */
 function buildAttachments_(files) {
   if (!Array.isArray(files) || !files.length) return [];
   var blobs = [];
@@ -2042,8 +1995,8 @@ function buildAttachments_(files) {
     if (m) base64 = m[2];
     try {
       var bytes = Utilities.base64Decode(base64);
-      var blob  = Utilities.newBlob(bytes, mime, f.name || 'file');
-      var key   = blob.getName() + '|' + blob.getBytes().length;
+      var blob = Utilities.newBlob(bytes, mime, f.name || 'file');
+      var key = blob.getName() + '|' + blob.getBytes().length;
       if (!seen.has(key)) { seen.add(key); blobs.push(blob); }
     } catch(e) {
       console.error('Failed to create blob for ' + (f.name || '(no name)'));
@@ -2052,49 +2005,100 @@ function buildAttachments_(files) {
   return blobs;
 }
 
-/* === リーガル空欄行を丸ごと非表示にする（自動返信用） === */
+/* === リーガル空欄行を丸ごと非表示にする === */
 var LEGAL_LABELS_ = ['会社名','所在地','電話','代表者','お問い合わせ窓口','メール','営業時間','Web','個人情報保護方針'];
 function stripEmptyLegalLines_(text){
-  // 「ラベル : 」で終わる行を削除（対象ラベル限定）
   var esc = function(s){ return s.replace(/[-/\\\\^$*+?.()|[\\]{}]/g,'\\\\$&'); };
   var re = new RegExp('^\\\\s*(?:' + LEGAL_LABELS_.map(esc).join('|') + ')\\\\s*:\\\\s*$', 'u');
   return String(text||'').split('\\n').filter(function(line){ return !re.test(line); }).join('\\n');
 }
 
-/* ============================== メール送信 ============================== */
-function sendAutoReply_(to, ctx, attachmentsBlobs){
-  if (!to) return;
+/* ============================== 宛先サニタイズ（安定化） ============================== */
+function normalizeSpaces_(s){
+  return String(s || '')
+    .replace(/\\u00A0/g, ' ')  // NBSP
+    .replace(/\\u3000/g, ' ') // 全角スペース
+    .replace(/\\u200B/g, '')   // zero-width space
+    .replace(/[ \\t\\r\\n]+/g, ' ')
+    .trim();
+}
+function parseEmailList_(s){
+  return normalizeSpaces_(s)
+    .replace(/[、，；;]+/g, ',') // 全角区切り→半角カンマ
+    .replace(/\\s*,\\s*/g, ',')
+    .split(',')
+    .map(v => v.trim())
+    .filter(v => v);
+}
+function looksLikeEmail_(s){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s||''));
+}
+
+/* ============================== メール送信（安定化） ============================== */
+function sendAutoReply_(toRaw, ctx, attachmentsBlobs){
+  const to = normalizeSpaces_(toRaw);
+  if (!looksLikeEmail_(to)) {
+    console.error('AutoReply skipped: invalid to=' + toRaw);
+    return;
+  }
   const subject = renderTpl_(getTpl_('AUTO_REPLY_SUBJECT', DEFAULT_AUTO_REPLY_SUBJECT), ctx);
-  // 差し込み → リーガル空欄行の削除
+
   const rendered = renderTpl_(getTpl_('AUTO_REPLY_BODY', DEFAULT_AUTO_REPLY_BODY), ctx);
-  const cleaned  = stripEmptyLegalLines_(rendered);
+  let cleaned = rendered;
+  try { cleaned = stripEmptyLegalLines_(rendered); }
+  catch(e){ console.error('stripEmptyLegalLines_ (auto) failed: ' + e); }
 
   const at = buildAttachmentSections_(ctx.attachments || []);
   const finalBody = cleaned + at.text;
   const finalHtmlBody = escapeHtml_(cleaned).replace(/\\n/g,'<br>') + at.html;
 
   const senderName = getProp_('SENDER_NAME','') || getProp_('LEGAL_COMPANY','') || 'No-Reply';
-  const replyTo    = getProp_('REPLY_TO','');
+  const replyTo = normalizeSpaces_(getProp_('REPLY_TO',''));
 
-  GmailApp.sendEmail(to, subject, finalBody, {
-    name: senderName, replyTo, htmlBody: finalHtmlBody,
-    attachments: [] // ★添付は付けない（本文サムネのみ）
-  });
+  try {
+    GmailApp.sendEmail(to, subject, finalBody, {
+      name: senderName,
+      replyTo: looksLikeEmail_(replyTo) ? replyTo : undefined,
+      htmlBody: finalHtmlBody,
+      attachments: []
+    });
+  } catch (err) {
+    console.error('GmailApp.sendEmail auto failed: ' + err);
+  }
 }
 
 function sendNotify_(ctx, attachmentsBlobs){
-  const to = getProp_('NOTIFY_TO','');
-  if (!to) return;
+  const list = parseEmailList_(getProp_('NOTIFY_TO',''));
+  if (!list.length) {
+    console.error('Notify skipped: NOTIFY_TO empty');
+    return;
+  }
   const subject = renderTpl_(getTpl_('NOTIFY_SUBJECT', DEFAULT_NOTIFY_SUBJECT), ctx);
-  const baseTextBody = renderTpl_(getTpl_('NOTIFY_BODY', DEFAULT_NOTIFY_BODY), ctx);
-  const at = buildAttachmentSections_(ctx.attachments || []);
-  const finalBody = baseTextBody + at.text;
-  const finalHtmlBody = escapeHtml_(baseTextBody).replace(/\\n/g,'<br>') + at.html;
-  const replyTo = ctx.EMAIL || getProp_('REPLY_TO','');
 
-  GmailApp.sendEmail(to, subject, finalBody, {
-    replyTo, htmlBody: finalHtmlBody,
-    attachments: [] // ★添付は付けない（本文サムネのみ）
+  const baseTextBody = renderTpl_(getTpl_('NOTIFY_BODY', DEFAULT_NOTIFY_BODY), ctx);
+  let safeBody = baseTextBody;
+  try { safeBody = stripEmptyLegalLines_(baseTextBody); }
+  catch(e){ console.error('stripEmptyLegalLines_ (notify) failed: ' + e); }
+
+  const at = buildAttachmentSections_(ctx.attachments || []);
+  const finalBody = safeBody + at.text;
+  const finalHtmlBody = escapeHtml_(safeBody).replace(/\\n/g,'<br>') + at.html;
+  const replyTo = normalizeSpaces_(ctx.EMAIL || getProp_('REPLY_TO',''));
+
+  list.forEach(addr => {
+    if (!looksLikeEmail_(addr)) {
+      console.error('Notify skipped one invalid: ' + addr);
+      return;
+    }
+    try {
+      GmailApp.sendEmail(addr, subject, finalBody, {
+        replyTo: looksLikeEmail_(replyTo) ? replyTo : undefined,
+        htmlBody: finalHtmlBody,
+        attachments: []
+      });
+    } catch (err) {
+      console.error('GmailApp.sendEmail notify failed ('+addr+'): ' + err);
+    }
   });
 }
 
@@ -2106,42 +2110,42 @@ function json_(obj, code){
   return out;
 }
 
+// Ver 4.3 の sendBeacon/fetch(keepalive) 対応ロジック
 function doPost(e){
   try{
-    const raw=(e && e.parameter && e.parameter.payload) || '';
+    let raw = (e && e.parameter && e.parameter.payload) || '';
+    if (!raw && e && e.postData && e.postData.contents) {
+      raw = e.postData.contents;
+    }
     if (!raw) return json_({ ok:false, error:'payload missing' });
-    const payload=JSON.parse(raw);
+    const payload = (typeof raw === 'string') ? JSON.parse(raw) : raw;
 
-    // メール用添付Blob（重複除去）
     const mailAttachments = buildAttachments_(payload.files || []);
 
-    // reCAPTCHA（任意）
     const secret=getProp_('RECAPTCHA_SECRET','');
     if (secret && payload.recaptchaToken){
       const res=UrlFetchApp.fetch('https://www.google.com/recaptcha/api/siteverify', {
         method:'post', payload:{ secret, response: payload.recaptchaToken }, muteHttpExceptions:true
       });
       const vr=JSON.parse(res.getContentText() || '{}');
-      if (!vr.success) return json_({ ok:false, error:'recaptcha failed' });
+      if (!vr.success) {
+        console.error('reCAPTCHA verification failed: ' + (vr['error-codes'] || 'Unknown error'));
+        return json_({ ok:false, error:'recaptcha failed' });
+      }
     }
 
     const sh=getSheet_();
 
-    // フロントからの情報
     const formTitle=String(payload.formTitle || 'フォーム');
     const schema=Array.isArray(payload.schema) ? payload.schema : [];
     const headers=expectedHeaders_(schema);
 
-    // A1 タイトル＆2行目ヘッダ表示（装飾）
     ensureBannerAndHeaders_(sh, headers);
-
-    // 電話列の表示は値側で'固定（ensurePhoneColumnAsText_はNOP）
     ensurePhoneColumnAsText_(sh);
 
-    // データ行：3行目から。既存データ行数 = getLastRow() - 2
     const dataLastRow = Math.max(0, sh.getLastRow() - 2);
-    const nextRowIndex = dataLastRow + 3; // 3行目から書く
-    const rowNumber   = dataLastRow + 1;  // 通番=1,2,3...
+    const nextRowIndex = dataLastRow + 3;
+    const rowNumber = dataLastRow + 1;
 
     const kv=(payload.kv && typeof payload.kv === 'object') ? payload.kv : {};
     const files=Array.isArray(payload.files) ? payload.files : [];
@@ -2149,17 +2153,13 @@ function doPost(e){
     const when=new Date();
     const acceptId=nextAcceptId_();
 
-    // Drive 保存
     const driveAttachments=saveUploads_(files, acceptId);
 
-    // 行データ構築＆書き込み
     const row=buildRow_(headers, formTitle, acceptId, when, schema, kv, driveAttachments, rowNumber);
     sh.getRange(nextRowIndex, 1, 1, row.length).setValues([row]);
 
-    // 添付URLセルをクリック可能に（RichTextリンク）
     setAttachmentLinksCell_(sh, headers, nextRowIndex, driveAttachments);
 
-    // メール用コンテキスト
     const ctx={
       ID: acceptId,
       DATETIME: Utilities.formatDate(when, tz_(), 'yyyy/MM/dd HH:mm'),
@@ -2170,14 +2170,14 @@ function doPost(e){
       USER_AGENT: userAgent,
       attachments: driveAttachments
     };
-    ctx.LEGAL_COMPANY    = getProp_('LEGAL_COMPANY','');
-    ctx.LEGAL_ADDRESS    = getProp_('LEGAL_ADDRESS','');
-    ctx.LEGAL_TEL        = getProp_('LEGAL_TEL','');
-    ctx.LEGAL_REP        = getProp_('LEGAL_REP','');
-    ctx.LEGAL_CONTACT    = getProp_('LEGAL_CONTACT','');
-    ctx.LEGAL_EMAIL      = getProp_('LEGAL_EMAIL','');
-    ctx.LEGAL_HOURS      = getProp_('LEGAL_HOURS','');
-    ctx.LEGAL_WEB        = getProp_('LEGAL_WEB','');
+    ctx.LEGAL_COMPANY = getProp_('LEGAL_COMPANY','');
+    ctx.LEGAL_ADDRESS = getProp_('LEGAL_ADDRESS','');
+    ctx.LEGAL_TEL = getProp_('LEGAL_TEL','');
+    ctx.LEGAL_REP = getProp_('LEGAL_REP','');
+    ctx.LEGAL_CONTACT = getProp_('LEGAL_CONTACT','');
+    ctx.LEGAL_EMAIL = getProp_('LEGAL_EMAIL','');
+    ctx.LEGAL_HOURS = getProp_('LEGAL_HOURS','');
+    ctx.LEGAL_WEB = getProp_('LEGAL_WEB','');
     ctx.LEGAL_PRIVACY_URL= getProp_('LEGAL_PRIVACY_URL','');
 
     // 送信
@@ -2196,7 +2196,7 @@ function doGet(){ return HtmlService.createHtmlOutput('OK'); }
 
 function onOpen(){
   SpreadsheetApp.getUi()
-    .createMenu('フォーム設定')
+    .createMenu('瞬フォーム設定')
     .addItem('設定を開く','showSettingsSidebar')
     .addSeparator()
     .addItem('使い方ガイドはこちら','createGuideSheet_')
@@ -2205,13 +2205,12 @@ function onOpen(){
     .addToUi();
 }
 
-/* ★テンプレート不要: Sidebar.html をそのまま出力 */
 function showSettingsSidebar(){
   const P = PropertiesService.getScriptProperties();
   if(!P.getProperty('AUTO_REPLY_SUBJECT')) P.setProperty('AUTO_REPLY_SUBJECT', DEFAULT_AUTO_REPLY_SUBJECT);
   if(!P.getProperty('AUTO_REPLY_BODY'))    P.setProperty('AUTO_REPLY_BODY',    DEFAULT_AUTO_REPLY_BODY);
-  if(!P.getProperty('NOTIFY_SUBJECT'))     P.setProperty('NOTIFY_SUBJECT',     DEFAULT_NOTIFY_SUBJECT);
-  if(!P.getProperty('NOTIFY_BODY'))        P.setProperty('NOTIFY_BODY',        DEFAULT_NOTIFY_BODY);
+  if(!P.getProperty('NOTIFY_SUBJECT'))      P.setProperty('NOTIFY_SUBJECT',     DEFAULT_NOTIFY_SUBJECT);
+  if(!P.getProperty('NOTIFY_BODY'))         P.setProperty('NOTIFY_BODY',        DEFAULT_NOTIFY_BODY);
 
   const html = HtmlService.createHtmlOutputFromFile('Sidebar')
     .setTitle('フォーム設定')
@@ -2219,7 +2218,6 @@ function showSettingsSidebar(){
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-/* ===== 設定のエクスポート等（日本語文面は原型維持） ===== */
 function getAllProps_(){
   const P=PropertiesService.getScriptProperties(); const all=P.getProperties();
   const keys=[
@@ -2259,7 +2257,7 @@ function api_seedDefaults(){
   return P.getProperties();
 }
 
-/* ============================== 使い方ガイド（本文そのまま） ============================== */
+/* ============================== 使い方ガイド（Ver 4.1ベース + 修正） ============================== */
 function createGuideSheet_(){
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const guideSheetName = '使い方ガイド';
@@ -2279,10 +2277,9 @@ function createGuideSheet_(){
 
   const guideData = [
     ['▼ 項目', '▼ 説明', '▼ 補足'],
-
     ['■■■ 1. このツールの目的と基本的な使い方 ■■■', null, null],
     ['このツールの目的', 'お問い合わせへの自動返信メールと社内向け通知メールの作成と、お問い合わせフォームから送信された内容を保存するシートを作成します。', null],
-    ['基本的な使い方', '① メニュー「フォーム設定」>「設定を開く」でサイドバーを表示します。\\n② サイドバーでメールの文面などを自由に編集してください。\\n③ 編集が終わったら、サイドバー一番下の緑の「保存する」ボタンを押します。', 'これで自動返信、通知メールが作成され、実際のメールに反映されます。それと、フォームから送信された内容を保存するシートが自動で作成され、送信されるたびに自動で内容が追加されていきます。'],
+    ['基本的な使い方', '① メニュー「瞬フォーム設定」>「設定を開く」でサイドバーを表示します。\\n② サイドバーでメールの文面などを自由に編集してください。\\n③ 編集が終わったら、サイドバー一番下の緑の「保存する」ボタンを押します。', 'これで自動返信、通知メールが作成され、実際のメールに反映されます。それと、フォームから送信された内容を保存するシートが自動で作成され、送信されるたびに自動で内容が追加されていきます。'],
     [],
     ['■■■ 2. サイドバー各項目の詳しい説明 ■■■', null, null],
     ['【固有ID】', null, null],
@@ -2293,7 +2290,7 @@ function createGuideSheet_(){
     ['Reply-To（返信先の予約）', '通知を受け取ったメールからお客様へダイレクトに返信する場合、自動的に宛先（To:）にお客様のメアドが入るようにするための設定です。', 'お客様とのやり取りに使うメアド（サポート窓口など）を設定してください。社内向け通知メールと同じメールアドレスでも構いません。空欄でも問題ありませんが、設定すると返信がとても楽になります。'],
     ['差出人名', 'お客様に届く自動返信メールの「差出人」として表示される名前です。', '「〇〇株式会社 サポート窓口」のように、お客様から見て誰からのメールか分かるようにしてください'],
     ['【リーガル表記（メールのフッター用）】', null, null],
-    ['会社名・所在地など', '自動返信メールの一番下に表示される、会社名や住所などの情報です。ここに入力した情報が自動で差し込まれます。', '全て埋める必要はありません。空欄の項目名はメールに表示されません。'],
+    ['会社名・所在地など', '自動返信メールの一番下に表示される、会社名、住所、代表者、お問い合わせ窓口などの情報です。ここに入力した情報が自動で差し込まれます。', '全て埋める必要はありません。空欄の項目名はメールに表示されません。'],
     ['【自動返信テンプレ（お客様向け）】', null, null],
     ['件名・本文', 'お客様に届くメールの件名と本文です。', '最初から入っている例文を自由に書き換えてください。\`{{NAME}}\`のような文字は下の「差し込みタグ」の説明を見てください。'],
     ['【通知テンプレ（社内向け）】', null, null],
@@ -2301,7 +2298,7 @@ function createGuideSheet_(){
     ['【アップロード保存（上級者向け）】', null, null],
     ['保存フォルダID', '入力フォームに画像が添付されていた場合の保存フォルダのIDです。', '空欄のままで問題ありません。Googleドライブに「Form Uploads」というフォルダが自動作成され、さらにお客様ごとにサブフォルダを作成して保存します。'],
     ['【その他（上級者向け）】', null, null],
-    ['回答記録スプレッドシートID など', 'より高度な設定です。これらの項目は、特定のフォルダやシートを使いたい場合などに手動でIDを指定するためのものです。', '特定の場合を除き、空欄のままで問題ありません。スクリプトが自動で作成・管理してくれます。'],
+    ['回答記録スプレッドシートID など', 'より高度な設定です。これらの項目は、特定のフォルダやシートを使いたい場合などに手動でIDを指定するためのものです。', '特定の場合を除き、空欄でも問題ありません。スクリプトが自動で作成・管理してくれます。'],
     [],
     ['■■■ 3. 差し込みタグについて ■■■', null, null],
     ['差し込みタグとは？', 'メールの本文中にある \`{{NAME}}\` や \`{{ID}}\` のような \`{{ }}\` で囲まれた文字のことです。これらは、メールを送る際、自動でお客様の情報（名前や受付番号など）に置き換わります。', 'これにより、一人ひとりのお客様に合わせたパーソナルなメールを送ることができます。'],
